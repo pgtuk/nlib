@@ -1,0 +1,20 @@
+[package]
+name = "nlib"
+version = "0.1.0"
+authors = ["Pe Tya <gtuk@duck.com>"]
+edition = "2021"
+
+[dependencies]
+dioxus = { version = "0.7.1", features = [] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+directories = { version = "5.0" }
+thiserror = { version = "2.0" }
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
