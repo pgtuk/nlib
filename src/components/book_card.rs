@@ -6,10 +6,10 @@ pub fn BookCard(book: Book) -> Element {
     rsx! {
         div { class: "book-card",
             div { class: "book-cover-container",
-                if let Some(url) = &book.cover_url {
-                    img { class: "book-cover-img", src: "{url}", alt: "{book.title}" }
-                } else {
+                if book.cover_url.is_empty() {
                     span { class: "no-cover-placeholder", "No Cover" }
+                } else {
+                    img { class: "book-cover-img", src: "{book.cover_url}", alt: "{book.title}" }
                 }
             }
             div { class: "book-info",

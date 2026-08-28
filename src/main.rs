@@ -6,23 +6,26 @@ mod models;
 mod services;
 
 use components::{AddBookModal, BookGrid, NavBar};
-use models::{Book, BookDraft};
+use models::BookDraft;
+
+use crate::services::storage::Db;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 fn main() {
-    dioxus::launch(App);
+    let db = Db::open().expect("Couldn't init storage");
+    dioxus::LaunchBuilder::new().with_context(db).launch(App);
 }
 
 #[component]
 fn App() -> Element {
+    // TODO: handle erorrs without panic
     let search_query = use_signal(String::new);
     let mut show_modal = use_signal(|| false);
 
-    let db_conn = services::storage::init_db()?;
+    let db = use_context::<Db>();
 
-    // TODO: handle erorrs without panic
-    let mut books = use_signal(|| services::storage::load_books(&db_conn).unwrap());
+    let mut books = use_signal(|| db.books().unwrap());
 
     let query = search_query.read().to_lowercase();
     let filtered_books = books
@@ -51,9 +54,10 @@ fn App() -> Element {
             if show_modal() {
                 AddBookModal {
                     on_close: move |_| show_modal.set(false),
-                    on_save: move |mut new_book: BookDraft| {
-
+                    on_save: move |draft: BookDraft| {
+                        db.add_book(&draft).unwrap();
                         show_modal.set(false);
+                        books.set(db.books().unwrap());
                     },
                 }
             }

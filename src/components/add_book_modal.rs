@@ -5,19 +5,13 @@ use crate::services::openlibrary::search_openlibrary;
 
 #[component]
 pub fn AddBookModal(on_close: EventHandler<()>, on_save: EventHandler<BookDraft>) -> Element {
-    let mut title = use_signal(String::new);
-    let mut author = use_signal(String::new);
-    let mut description = use_signal(String::new);
-    let mut cover_url = use_signal(String::new);
+    let mut draft = use_signal(BookDraft::default);
 
     let handle_select = move |book: BookDraft| {
-        title.set(book.title);
-        author.set(book.author);
-        description.set(book.description.unwrap_or_default());
-        cover_url.set(book.cover_url.unwrap_or_default());
+        draft.set(book);
     };
 
-    let handle_save = move |_| todo!();
+    let handle_save = move |_| on_save.call(draft());
 
     rsx! {
         div { class: "modal-overlay",
@@ -34,7 +28,7 @@ pub fn AddBookModal(on_close: EventHandler<()>, on_save: EventHandler<BookDraft>
                 div { class: "divider", span { "Or fill manually" } }
 
                 // 3. Form fields + Cover preview
-                BookFormFields { title, author, cover_url, description }
+                BookFormFields { draft }
 
                 // 4. Action buttons
                 div { class: "modal-actions",
@@ -108,18 +102,13 @@ fn OnlineSearchSection(on_select: EventHandler<BookDraft>) -> Element {
 }
 
 #[component]
-fn BookFormFields(
-    title: Signal<String>,
-    author: Signal<String>,
-    cover_url: Signal<String>,
-    description: Signal<String>,
-) -> Element {
+fn BookFormFields(draft: Signal<BookDraft>) -> Element {
     rsx! {
         div { class: "form-row-with-preview",
             // Cover Preview Box
             div { class: "modal-cover-preview",
-                if !cover_url.read().trim().is_empty() {
-                    img { class: "modal-cover-img", src: "{cover_url}", alt: "Cover preview" }
+                if !draft.read().cover_url.trim().is_empty() {
+                    img { class: "modal-cover-img", src: "{draft.read().cover_url}", alt: "Cover preview" }
                 } else {
                     div { class: "modal-cover-placeholder",
                         span { "📖" }
@@ -135,8 +124,8 @@ fn BookFormFields(
                     input {
                         class: "form-input",
                         placeholder: "e.g. Dune",
-                        value: "{title}",
-                        oninput: move |evt| title.set(evt.value()),
+                        value: "{draft.read().title}",
+                        oninput: move |evt| draft.write().title = evt.value(),
                     }
                 }
                 label { class: "form-group",
@@ -144,8 +133,8 @@ fn BookFormFields(
                     input {
                         class: "form-input",
                         placeholder: "e.g. Frank Herbert",
-                        value: "{author}",
-                        oninput: move |evt| author.set(evt.value()),
+                        value: "{draft.read().author}",
+                        oninput: move |evt| draft.write().author = evt.value(),
                     }
                 }
                 label { class: "form-group",
@@ -154,20 +143,20 @@ fn BookFormFields(
                         class: "form-input",
                         r#type: "url",
                         placeholder: "https://...",
-                        value: "{cover_url}",
-                        oninput: move |evt| cover_url.set(evt.value()),
+                        value: "{draft.read().cover_url}",
+                        oninput: move |evt| draft.write().cover_url = evt.value(),
                     }
                 }
             }
         }
 
         label { class: "form-group",
-            "Description"ia
+            "Description"
             textarea {
                 class: "form-textarea",
                 placeholder: "Short summary...",
-                value: "{description}",
-                oninput: move |evt| description.set(evt.value()),
+                value: "{draft.read().description}",
+                oninput: move |evt| draft.write().description = evt.value(),
             }
         }
     }

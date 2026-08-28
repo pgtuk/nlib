@@ -10,7 +10,6 @@ pub struct OpenLibraryResponse {
 pub struct OpenLibraryBook {
     pub title: String,
     pub author_name: Option<Vec<String>>,
-    pub first_publish_year: Option<i32>,
     pub cover_i: Option<i64>,
     pub first_sentence: Option<FirstSentence>,
 }
@@ -45,7 +44,8 @@ fn doc_to_book(doc: OpenLibraryBook) -> BookDraft {
 
     let cover_url = doc
         .cover_i
-        .map(|id| format!("https://covers.openlibrary.org/b/id/{}-M.jpg", id));
+        .map(|id| format!("https://covers.openlibrary.org/b/id/{}-M.jpg", id))
+        .unwrap_or_default();
 
     let description = doc
         .first_sentence

@@ -1,5 +1,8 @@
+use std::fs::create_dir_all;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
 
+use directories::ProjectDirs;
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
@@ -12,59 +15,84 @@ pub enum StorageError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("could not determine a data directory for this platform")]
+    NoDataDir,
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;
 
-fn get_db_path() -> PathBuf {
-    todo!()
-}
+#[derive(Clone)]
+// wraps connection to be able to share it between threads/signals without cloning
+pub struct Db(Arc<Mutex<Connection>>);
 
-pub fn init_db() -> Result<Connection> {
-    let path = get_db_path();
-    let conn = Connection::open(path)?;
+impl Db {
+    pub fn open() -> Result<Self> {
+        let db_file_path = get_db_path()?;
+        create_dir_all(db_file_path.parent().expect("db path should have parent"))?; // ensure db file path exists
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS  books (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            author TEXT NOT NULL,
-            description TEXT,
-            cover_url TEXT
-        )",
-        [],
-    )?;
+        let conn = Connection::open(db_file_path)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS  books (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                description TEXT,
+                cover_url TEXT
+            )",
+            [],
+        )?;
 
-    Ok(conn)
-}
-
-// TODO: add pagination
-pub fn load_books(conn: &Connection) -> Result<Vec<Book>> {
-    let mut stmt = conn
-        .prepare("SELECT id, title, author, description, cover_url FROM books ORDER BY id DESC")?;
-
-    let books_iter = stmt.query_map([], |row| {
-        Ok(Book {
-            id: row.get::<_, i64>(0)? as usize,
-            title: row.get(1)?,
-            author: row.get(2)?,
-            description: row.get(3)?,
-            cover_url: row.get(4)?,
-        })
-    })?;
-
-    let mut books = Vec::new();
-    for book in books_iter {
-        books.push(book?);
+        Ok(Db(Arc::new(Mutex::new(conn))))
     }
-    Ok(books)
+
+    fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.0.lock().expect("SQLite Mutex poisoned")
+    }
+
+    pub fn books(&self) -> Result<Vec<Book>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, title, author, description, cover_url FROM books ORDER BY id DESC",
+        )?;
+
+        let books_iter = stmt.query_map([], |row| {
+            Ok(Book {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                author: row.get(2)?,
+                description: row.get(3)?,
+                cover_url: row.get(4)?,
+            })
+        })?;
+
+        let mut books = Vec::new();
+        for book in books_iter {
+            books.push(book?);
+        }
+        Ok(books)
+    }
+
+    pub fn add_book(&self, draft: &BookDraft) -> Result<i64> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO books (title, author, description, cover_url) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                draft.title,
+                draft.author,
+                draft.description,
+                draft.cover_url
+            ],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
 }
 
-pub fn save_book(conn: &Connection, book: &BookDraft) -> Result<usize> {
-    conn.execute(
-        "INSERT INTO books (title, author, description, cover_url) VALUES (?1, ?2, ?3, ?4)",
-        params![book.title, book.author, book.description, book.cover_url],
-    )?;
-
-    Ok(conn.last_insert_rowid() as usize)
+fn get_db_path() -> Result<PathBuf> {
+    // should return ~/.local/share/nlib/nlib.sqlite and be distribution agnostic
+    Ok(ProjectDirs::from("", "", "nlib")
+        .ok_or(StorageError::NoDataDir)?
+        .data_dir()
+        .join("nlib.sqlite"))
 }
