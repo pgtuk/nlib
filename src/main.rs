@@ -12,6 +12,8 @@ use crate::services::storage::Db;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
+// nice ui/styles here  - https://github.com/pumpbin/pumpbin
+
 fn main() {
     let db = Db::open().expect("Couldn't init storage");
     dioxus::LaunchBuilder::new().with_context(db).launch(App);
