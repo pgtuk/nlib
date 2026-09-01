@@ -3,7 +3,7 @@ use relm4::prelude::*;
 use relm4::{adw, gtk};
 
 use crate::models::Book;
-use crate::services::covers;
+use crate::services::covers::{self, resize_cover_image};
 
 pub struct BookViewModal {
     book: Book,
@@ -13,12 +13,17 @@ pub struct BookViewModal {
     read_by_nika_switch: adw::SwitchRow,
     read_by_petya_switch: adw::SwitchRow,
     description_view: gtk::TextView,
+
+    cover_picture: gtk::Picture,
+    pending_cover_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
 pub enum BookViewInput {
     Save,
     Cancel,
+    PickLocalImage,
+    LocalImageLoaded(Vec<u8>),
     DeleteRequested,
     DeleteConfirmed,
 }
@@ -101,14 +106,20 @@ impl Component for BookViewModal {
 
                             gtk::Box {
                                 set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 8,
                                 set_valign: gtk::Align::Start,
-                                add_css_class: "card",
-                                set_margin_bottom: 4,
 
-                                gtk::Picture {
-                                    set_filename: covers::existing_cover(model.book.id),
+                                #[local_ref]
+                                cover_picture -> gtk::Picture {
                                     set_content_fit: gtk::ContentFit::Contain,
                                     set_size_request: (320, 460),
+                                    add_css_class: "card",
+                                },
+
+                                gtk::Button {
+                                    set_label: "Upload Cover…",
+                                    set_icon_name: "insert-image-symbolic",
+                                    connect_clicked => BookViewInput::PickLocalImage,
                                 },
                             },
 
@@ -198,6 +209,11 @@ impl Component for BookViewModal {
         let description_view = gtk::TextView::new();
         description_view.buffer().set_text(&book.description);
 
+        let cover_picture = gtk::Picture::new();
+        if let Some(path) = covers::existing_cover(book.id) {
+            cover_picture.set_filename(Some(path));
+        }
+
         let model = BookViewModal {
             book,
             title_entry,
@@ -206,6 +222,8 @@ impl Component for BookViewModal {
             read_by_nika_switch,
             read_by_petya_switch,
             description_view,
+            cover_picture,
+            pending_cover_bytes: None,
         };
 
         let title_entry = &model.title_entry;
@@ -214,6 +232,7 @@ impl Component for BookViewModal {
         let read_by_nika_switch = &model.read_by_nika_switch;
         let read_by_petya_switch = &model.read_by_petya_switch;
         let description_view = &model.description_view;
+        let cover_picture = &model.cover_picture;
 
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -223,6 +242,43 @@ impl Component for BookViewModal {
         match msg {
             BookViewInput::Cancel => {
                 root.close();
+            }
+
+            BookViewInput::PickLocalImage => {
+                let filter = gtk::FileFilter::new();
+                filter.set_name(Some("Image files (*.png, *.jpg, *.jpeg, *.webp)"));
+                filter.add_pattern("*.png");
+                filter.add_pattern("*.jpg");
+                filter.add_pattern("*.jpeg");
+                filter.add_pattern("*.webp");
+
+                let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+
+                let dialog = gtk::FileDialog::builder()
+                    .title("Select Book Cover Image")
+                    .filters(&filters)
+                    .build();
+
+                let sender_clone = sender.clone();
+                dialog.open(Some(root), gtk::gio::Cancellable::NONE, move |res| {
+                    if let Ok(file) = res {
+                        if let Some(path) = file.path() {
+                            if let Ok(bytes) = std::fs::read(&path) {
+                                sender_clone.input(BookViewInput::LocalImageLoaded(bytes));
+                            }
+                        }
+                    }
+                });
+            }
+
+            BookViewInput::LocalImageLoaded(raw) => {
+                let resized = resize_cover_image(&raw);
+                let bytes = gtk::glib::Bytes::from(&resized[..]);
+                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
+                    self.cover_picture.set_paintable(Some(&tex));
+                    self.pending_cover_bytes = Some(resized);
+                }
             }
 
             BookViewInput::Save => {
@@ -242,6 +298,10 @@ impl Component for BookViewModal {
                 }
                 if has_error {
                     return;
+                }
+
+                if let Some(bytes) = self.pending_cover_bytes.take() {
+                    let _ = covers::save_cover_bytes(updated.id, &bytes);
                 }
 
                 let _ = sender.output(BookViewOutput::Save(updated));
