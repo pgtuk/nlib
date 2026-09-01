@@ -53,6 +53,15 @@ pub fn resize_cover_image(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
+/// Fetches cover bytes from URL and resizes them
+pub async fn fetch_and_resize(url: &str) -> Result<Vec<u8>, reqwest::Error> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .build()?;
+    let raw = client.get(url).send().await?.bytes().await?;
+    Ok(resize_cover_image(&raw))
+}
+
 // sync: bytes already in hand (the reuse path)
 pub fn save_cover_bytes(id: i64, bytes: &[u8]) -> Result<PathBuf, CoverError> {
     let path = COVERS_DIR
@@ -67,7 +76,7 @@ pub fn save_cover_bytes(id: i64, bytes: &[u8]) -> Result<PathBuf, CoverError> {
 
 // async: fallback when the preview never loaded
 pub async fn download_cover(url: &str, id: i64) -> Result<PathBuf, CoverError> {
-    let bytes = reqwest::get(url).await?.bytes().await?;
+    let bytes = fetch_and_resize(url).await?;
     save_cover_bytes(id, &bytes)
 }
 

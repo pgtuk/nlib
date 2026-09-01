@@ -2,6 +2,7 @@ use relm4::adw::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
+use super::{clean_entry, clean_text};
 use crate::models::Book;
 use crate::services::covers::{self, resize_cover_image};
 
@@ -314,14 +315,4 @@ impl Component for BookViewModal {
             }
         }
     }
-}
-
-fn clean_entry(input: &adw::EntryRow) -> String {
-    input.text().trim().to_string()
-}
-
-fn clean_text(input: &gtk::TextView) -> String {
-    let buffer = input.buffer();
-    let s = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-    s.trim().to_string()
 }

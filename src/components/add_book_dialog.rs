@@ -2,8 +2,9 @@ use relm4::adw::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
+use super::{clean_entry, clean_text};
 use crate::models::BookDraft;
-use crate::services::covers::resize_cover_image;
+use crate::services::covers::{fetch_and_resize, resize_cover_image};
 use crate::services::google_books::search_google_books;
 use crate::services::openlibrary::search_openlibrary;
 
@@ -545,22 +546,4 @@ fn set_cover_preview(
         widgets.cover_preview.set_visible(true);
         *cover_bytes = resized_bytes;
     }
-}
-
-fn clean_entry(input: &adw::EntryRow) -> String {
-    input.text().trim().to_string()
-}
-
-fn clean_text(input: &gtk::TextView) -> String {
-    let buffer = input.buffer();
-    let s = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-    s.trim().to_string()
-}
-
-async fn fetch_and_resize(url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-        .build()?;
-    let raw = client.get(url).send().await?.bytes().await?;
-    Ok(resize_cover_image(&raw))
 }
