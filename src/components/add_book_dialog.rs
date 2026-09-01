@@ -34,8 +34,9 @@ pub enum AddBookDialogOutput {
 
 #[derive(Debug)]
 pub enum DialogCmd {
-    SearchResult(Result<Vec<BookDraft>, String>),
-    CoverBytes(Result<Vec<u8>, reqwest::Error>),
+    SearchResults(Vec<BookDraft>),
+    CoverLoaded(Vec<u8>),
+    Error(String),
 }
 
 pub struct AddBookDialog {
@@ -109,6 +110,16 @@ impl AddBookDialog {
             .set_label(message.unwrap_or("Cover preview"));
         self.cover_placeholder.set_visible(true);
         self.cover_bytes.clear();
+    }
+
+    fn set_cover_image(&mut self, resized_bytes: Vec<u8>) {
+        let g_bytes = gtk::glib::Bytes::from(&resized_bytes[..]);
+        if let Ok(tex) = gtk::gdk::Texture::from_bytes(&g_bytes) {
+            self.cover_preview.set_paintable(Some(&tex));
+            self.cover_placeholder.set_visible(false);
+            self.cover_preview.set_visible(true);
+            self.cover_bytes = resized_bytes;
+        }
     }
 }
 
@@ -402,19 +413,9 @@ impl Component for AddBookDialog {
         _root: &Self::Root,
     ) {
         match message {
-            DialogCmd::SearchResult(msg) => {
+            DialogCmd::SearchResults(results) => {
                 self.search_button.set_sensitive(true);
                 self.search_button.set_label("Search");
-
-                let results = match msg {
-                    Ok(results) => results,
-                    Err(e) => {
-                        let toast = adw::Toast::new(&e);
-                        toast.set_timeout(5);
-                        self.toast_overlay.add_toast(toast);
-                        return;
-                    }
-                };
 
                 self.clear_results();
                 self.results = results;
@@ -446,20 +447,17 @@ impl Component for AddBookDialog {
                 self.results_scroll.set_visible(!self.results.is_empty());
             }
 
-            DialogCmd::CoverBytes(Ok(raw)) => {
-                let resized = resize_cover_image(&raw);
-                let bytes = gtk::glib::Bytes::from(&resized[..]);
-                match gtk::gdk::Texture::from_bytes(&bytes) {
-                    Ok(tex) => {
-                        self.cover_preview.set_paintable(Some(&tex));
-                        self.cover_placeholder.set_visible(false);
-                        self.cover_preview.set_visible(true);
-                        self.cover_bytes = resized;
-                    }
-                    Err(e) => eprintln!("cover decode failed: {e}"),
-                }
+            DialogCmd::CoverLoaded(resized) => {
+                self.set_cover_image(resized);
             }
-            DialogCmd::CoverBytes(Err(e)) => eprintln!("cover fetch failed: {e}"),
+
+            DialogCmd::Error(e) => {
+                self.search_button.set_sensitive(true);
+                self.search_button.set_label("Search");
+                let toast = adw::Toast::new(&e);
+                toast.set_timeout(5);
+                self.toast_overlay.add_toast(toast);
+            }
         }
     }
 
@@ -504,13 +502,7 @@ impl Component for AddBookDialog {
 
             AddBookDialogMsg::LocalImageLoaded(raw) => {
                 let resized = resize_cover_image(&raw);
-                let bytes = gtk::glib::Bytes::from(&resized[..]);
-                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
-                    self.cover_preview.set_paintable(Some(&tex));
-                    self.cover_placeholder.set_visible(false);
-                    self.cover_preview.set_visible(true);
-                    self.cover_bytes = resized;
-                }
+                self.set_cover_image(resized);
             }
 
             AddBookDialogMsg::Save => {
@@ -555,7 +547,10 @@ impl Component for AddBookDialog {
                             search_google_books(&q).await.map_err(|e| e.to_string())
                         }
                     };
-                    DialogCmd::SearchResult(res)
+                    match res {
+                        Ok(books) => DialogCmd::SearchResults(books),
+                        Err(err) => DialogCmd::Error(err),
+                    }
                 });
             }
 
@@ -581,8 +576,12 @@ impl Component for AddBookDialog {
                     self.show_cover_placeholder(Some("No cover image\navailable"));
                     return;
                 }
-                sender
-                    .oneshot_command(async move { DialogCmd::CoverBytes(fetch_bytes(&url).await) });
+                sender.oneshot_command(async move {
+                    match fetch_and_resize(&url).await {
+                        Ok(resized) => DialogCmd::CoverLoaded(resized),
+                        Err(e) => DialogCmd::Error(format!("Failed to fetch cover: {e}")),
+                    }
+                });
             }
 
             AddBookDialogMsg::ClearSearchResults => self.clear_results(),
@@ -600,9 +599,10 @@ fn clean_text(input: &gtk::TextView) -> String {
     s.trim().to_string()
 }
 
-async fn fetch_bytes(url: &str) -> Result<Vec<u8>, reqwest::Error> {
+async fn fetch_and_resize(url: &str) -> Result<Vec<u8>, reqwest::Error> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()?;
-    Ok(client.get(url).send().await?.bytes().await?.to_vec())
+    let raw = client.get(url).send().await?.bytes().await?;
+    Ok(resize_cover_image(&raw))
 }
