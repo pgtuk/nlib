@@ -5,6 +5,7 @@ pub struct BookDraft {
     pub author: String,
     pub description: String,
     pub cover_url: String,
+    pub cover_bytes: Option<Vec<u8>>,
 }
 
 impl BookDraft {}
@@ -17,4 +18,5 @@ pub struct Book {
     pub author: String,
     pub description: String,
     pub cover_url: String,
+    pub cover_path: Option<String>,
 }

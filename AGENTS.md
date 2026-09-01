@@ -1,265 +1,167 @@
-You are an expert [0.7 Dioxus](https://dioxuslabs.com/learn/0.7) assistant. Dioxus 0.7 changes every api in dioxus. Only use this up to date documentation. `cx`, `Scope`, and `use_state` are gone
+# nlib — agent guide
 
-Provide concise code examples with detailed descriptions
+Personal book library (desktop) for two users. GTK4 + libadwaita via **Relm4**.
+Migrated off Dioxus; ignore any Dioxus/RSX/`use_signal` habits — none of it applies.
 
-# Dioxus Dependency
+Petro writes the code and is learning Rust. Guide and explain; don't implement
+whole features for him unless he explicitly asks.
 
-You can add Dioxus to your `Cargo.toml` like this:
+## Stack
 
-```toml
-[dependencies]
-dioxus = { version = "0.7.1" }
+| | version | notes |
+|---|---|---|
+| relm4 | 0.11 | features `["libadwaita", "gnome_50"]` |
+| gtk4-rs | 0.11.4 | reach it via `relm4::gtk`, never a direct dep |
+| libadwaita-rs | 0.9.2 | via `relm4::adw` |
+| system GTK / libadwaita | 4.22 / 1.9.3 | `gnome_50` floors at GTK 4.20 / adw 1.9 |
+| rustc | 1.98 | relm4 0.11 needs ≥1.93 |
 
-[features]
-default = ["web", "webview", "server"]
-web = ["dioxus/web"]
-webview = ["dioxus/desktop"]
-server = ["dioxus/server"]
+`gnome_50` means the binary won't start on older GNOME. Both target machines are
+current; if that changes, drop to `gnome_46` (adw 1.5).
+
+Never add `gtk4`/`libadwaita` as direct deps — use `relm4::{gtk, adw}` (the
+prelude re-exports both). Mismatched gtk crate versions give unreadable type errors.
+
+## Run / debug
+
+- `cargo run` — desktop app.
+- `GTK_DEBUG=interactive cargo run` — live widget inspector (GTK's devtools). First
+  thing to reach for when a widget is the wrong size, missing, or unstyled: walk the
+  tree, check the CSS tab. Learn it before hand-debugging layout.
+- Working examples on disk (match our exact version, beat the website):
+  `~/.cargo/registry/src/*/relm4-0.11.0/examples/` — `factory.rs`, `entry.rs` are closest to our patterns.
+- When unsure of an API, `grep` the crate source under `~/.cargo/registry/src/*/{relm4,gtk4,gdk4,libadwaita}-*/` rather than guessing. Signatures verified this way beat memory.
+
+## Layout
+
+```
+src/
+  main.rs                     startup only: Db::open, RelmApp, set_global_css
+  app.rs                      App — root Component (window, headerbar, grid, save flow)
+  components/
+    book_card.rs              BookCard — FactoryComponent, one grid tile
+    add_book_dialog.rs        AddBookDialog — Component, the add dialog (search + preview)
+  models.rs                   Book (from DB), BookDraft (form input + optional cover bytes)
+  services/
+    storage.rs                Db: Arc<Mutex<Connection>>, Clone + Send
+    openlibrary.rs            async OpenLibrary search
+    covers.rs                 download / save cover thumbnails
+  errors.rs                   (currently empty/commented — implement AppError or delete)
+assets/
+  style.css                   Catppuccin Macchiato; loaded via include_str! in main
 ```
 
-# Launching your application
+## Relm4 mental model (read before editing views)
 
-You need to create a main function that sets up the Dioxus runtime and mounts your root component.
+`view!` runs **once**, at init, building a real widget tree. It is never re-run.
+State changes flow through the Elm loop: input message → `update` mutates the
+model → generated code re-applies only `#[watch]`-marked properties.
 
-```rust
-use dioxus::prelude::*;
+- **`#[watch]` is not optional.** An unmarked property is set once and frozen. No
+  error if you forget — the UI just never updates. (Our cards use `Input = ()` so
+  nothing changes post-build; no `#[watch]` needed there.)
+- **No conditional rendering in the view.** No `if cond { Widget }`. Widgets live
+  from birth to death; toggle `set_visible`, use a `gtk::Stack`, or launch a
+  separate component. (See the cover placeholder/preview visibility toggle in the dialog.)
+- **State is one struct** (the "model"), not scattered signals. Every field a view
+  reads, plus every widget handle `update` needs to touch, lives on it.
 
-fn main() {
-	dioxus::launch(App);
-}
+"Model" always means the struct implementing the component trait in the file
+you're editing — `App`, `AddBookDialog`, or `BookCard`. There are three.
 
-#[component]
-fn App() -> Element {
-	rsx! { "Hello, Dioxus!" }
-}
-```
+### SimpleComponent vs Component
 
-Then serve with `dx serve`:
+`SimpleComponent` pins `CommandOutput = ()` — no async results. The moment you need
+`sender.oneshot_command(...)` (any network/IO), upgrade to `Component`:
 
-```sh
-curl -sSL http://dioxus.dev/install.sh | sh
-dx serve
-```
+- `impl Component for X` (not `SimpleComponent`)
+- add `type CommandOutput = ...;`
+- `update` gains a 4th param: `_root: &Self::Root`
+- add `fn update_cmd(&mut self, msg, sender, root)` — **provided method with an empty
+  default**, so forgetting it silently drops your command result (no error). The async
+  future resolves to `CommandOutput`, delivered to `update_cmd` back on the main thread.
 
-# UI with RSX
+Both `App` and `AddBookDialog` are `Component` for exactly this reason.
 
-```rust
-rsx! {
-	div {
-		class: "container", // Attribute
-		color: "red", // Inline styles
-		width: if condition { "100%" }, // Conditional attributes
-		"Hello, Dioxus!"
-	}
-	// Prefer loops over iterators
-	for i in 0..5 {
-		div { "{i}" } // use elements or components directly in loops
-	}
-	if condition {
-		div { "Condition is true!" } // use elements or components directly in conditionals
-	}
+### Component checklist (the macro fills the rest)
 
-	{children} // Expressions are wrapped in brace
-	{(0..5).map(|i| rsx! { span { "Item {i}" } })} // Iterators must be wrapped in braces
-}
-```
+Macros annotate the **`impl`**, never the struct: `#[relm4::component(pub)]`,
+`#[relm4::factory(pub)]`. Use `(pub)` for cross-module components — it also makes the
+generated `XWidgets` struct public, which a private impl would choke on.
 
-# Assets
+A `view!` block is **required** inside the impl — it's the macro's input. Without it
+you get "missing `Root` / `init_root` / `init_widgets`" errors, because those are
+generated *from* the view. Factory views need an explicit `root = gtk::Box { .. }`.
 
-The asset macro can be used to link to local files to use in your project. All links start with `/` and are relative to the root of your project.
+Associated types you write: `Init`, `Input`, `Output`, `CommandOutput`, and (factory)
+`ParentWidget`. `Root`, `Widgets`, `Index` are macro-generated — don't declare them.
 
-```rust
-rsx! {
-	img {
-		src: asset!("/assets/image.png"),
-		alt: "An image",
-	}
-}
-```
+### `#[local_ref]` — three parts, all same name
 
-## Styles
+To have `update` touch a widget, the model owns it and the view adopts it. All four
+must use the identical identifier:
 
-The `document::Stylesheet` component will inject the stylesheet into the `<head>` of the document
+1. model field: `foo: gtk::Entry`
+2. `init` construction: `foo: gtk::Entry::new()`
+3. `init` binding: `let foo = &model.foo;`
+4. view: `#[local_ref] foo -> gtk::Entry { .. }`
 
-```rust
-rsx! {
-	document::Stylesheet {
-		href: asset!("/assets/styles.css"),
-	}
-}
-```
+Miss #3 and you get "cannot find value `foo`" (rustc even notes a field by that name
+exists). Nested `#[local_ref]` works (e.g. a `ListBox` inside a `ScrolledWindow`).
 
-# Components
+Child → parent: `.forward(sender.input_sender(), |out| ParentMsg::from(out))`. Store
+the returned `Controller` on the parent model — dropping it destroys the child.
 
-Components are the building blocks of apps
+## GTK / adw traps (all bit us at least once)
 
-* Component are functions annotated with the `#[component]` macro.
-* The function name must start with a capital letter or contain an underscore.
-* A component re-renders only under two conditions:
-	1.  Its props change (as determined by `PartialEq`).
-	2.  An internal reactive state it depends on is updated.
+- **Single-child containers silently drop extra children.** `adw::Window`,
+  `gtk::Window`, `gtk::ScrolledWindow`, `gtk::Frame`, `gtk::ListBoxRow`, `gtk::Button`
+  hold ONE child (relm4 maps to `set_content`/`set_child`). Add two and the last wins,
+  no warning. Multi-child: `gtk::Box`, `Grid`, `FlowBox`, `ListBox`, `adw::PreferencesGroup`.
+- **Nothing scrolls implicitly.** Content taller than the window is clipped, not
+  scrolled. Wrap in `gtk::ScrolledWindow` + `set_vexpand: true` on it.
+- **Labels don't wrap or ellipsize by default,** and a long one blows out layout. Need
+  `set_wrap` + `set_max_width_chars` (or a size request) + `set_ellipsize` + `set_lines`
+  together. GTK CSS has no `text-align` — use `set_xalign: 0.0`.
+- **`gtk::Picture` can't load a URL** — only local files (`set_filename`, takes
+  `Option<impl AsRef<Path>>`). For remote images: fetch bytes async →
+  `gdk::Texture::from_bytes(&glib::Bytes)` → `Picture::set_paintable`. Give it a size
+  request or it collapses.
+- **`adw::ActionRow`/`EntryRow` titles default to `use_markup = true`** — a raw `&` in
+  data (e.g. "Mason & Dixon") fails to render. Call `.use_markup(false)` on rows fed
+  API/user data. `gtk::Label` defaults markup **off** (opposite).
+- **`set_global_css` must run after GTK init** (after `RelmApp::new`, before `.run`).
+  Called earlier it panics: `Display::default().unwrap()` on `None`.
+- **GTK CSS ≠ web CSS.** No flexbox/grid/`gap`/`text-align`. Selectors target widget
+  node names (`box`, `label`, `button`, `entry`, `flowboxchild`, `window`), not tags.
+  Class selectors work after `add_css_class`. Spacing is `set_spacing`/`set_margin_*`
+  in Rust. libadwaita CSS custom properties (`--card-bg-color`, `--accent-bg-color`, …,
+  needs adw ≥1.6) recolor everything at once — that's how `style.css` themes.
+- Dark-mode warning about `gtk-application-prefer-dark-theme` comes from the user's KDE
+  `~/.config/gtk-4.0/settings.ini`, not our code. Harmless; adw reads `color-scheme`.
 
-```rust
-#[component]
-fn Input(mut value: Signal<String>) -> Element {
-	rsx! {
-		input {
-            value,
-			oninput: move |e| {
-				*value.write() = e.value();
-			},
-			onkeydown: move |e| {
-				if e.key() == Key::Enter {
-					value.write().clear();
-				}
-			},
-		}
-	}
-}
-```
+## Domain specifics
 
-Each component accepts function arguments (props)
+- **`Db`** is `Arc<Mutex<Connection>>` + `Clone`, shared into components. `books()`
+  selects all columns incl. `cover_path` (index 5) — keep SELECT and `row.get(n)` in
+  sync or you get `InvalidColumnIndex`.
+- **No schema migrations.** On any schema change, delete `~/.local/share/nlib/nlib.sqlite`
+  and let `open()` recreate it. Agreed tradeoff for a PoC; test rows are disposable.
+- **Search filters in-memory**, not SQL, on purpose: SQLite `LIKE`/`lower()` only
+  case-fold ASCII, so they miss Cyrillic (Ukrainian titles). Rust `to_lowercase()` is
+  full-Unicode. Clear-and-refill the factory per keystroke — fine at ~500 books.
+- **Covers:** grid tiles show a locally cached thumbnail (`cover_path`, a file named
+  `<id>.jpg` under the data dir's `covers/`); the dialog previews the remote `cover_url`
+  before save. `cover_url` is the source of record (user may paste any URL); `cover_path`
+  is the derived cache. On save: if the dialog already fetched bytes for the preview,
+  write them synchronously (`save_cover_bytes`, instant); otherwise download async
+  (`download_cover` → `AppCmd::CoverReady` → `update_cmd`). Invariant in the dialog:
+  `cover_bytes` is non-empty exactly when a valid preview is showing.
 
-* Props must be owned values, not references. Use `String` and `Vec<T>` instead of `&str` or `&[T]`.
-* Props must implement `PartialEq` and `Clone`.
-* To make props reactive and copy, you can wrap the type in `ReadOnlySignal`. Any reactive state like memos and resources that read `ReadOnlySignal` props will automatically re-run when the prop changes.
+## Open loose ends (non-functional)
 
-# State
-
-A signal is a wrapper around a value that automatically tracks where it's read and written. Changing a signal's value causes code that relies on the signal to rerun.
-
-## Local State
-
-The `use_signal` hook creates state that is local to a single component. You can call the signal like a function (e.g. `my_signal()`) to clone the value, or use `.read()` to get a reference. `.write()` gets a mutable reference to the value.
-
-Use `use_memo` to create a memoized value that recalculates when its dependencies change. Memos are useful for expensive calculations that you don't want to repeat unnecessarily.
-
-```rust
-#[component]
-fn Counter() -> Element {
-	let mut count = use_signal(|| 0);
-	let mut doubled = use_memo(move || count() * 2); // doubled will re-run when count changes because it reads the signal
-
-	rsx! {
-		h1 { "Count: {count}" } // Counter will re-render when count changes because it reads the signal
-		h2 { "Doubled: {doubled}" }
-		button {
-			onclick: move |_| *count.write() += 1, // Writing to the signal rerenders Counter
-			"Increment"
-		}
-		button {
-			onclick: move |_| count.with_mut(|count| *count += 1), // use with_mut to mutate the signal
-			"Increment with with_mut"
-		}
-	}
-}
-```
-
-## Context API
-
-The Context API allows you to share state down the component tree. A parent provides the state using `use_context_provider`, and any child can access it with `use_context`
-
-```rust
-#[component]
-fn App() -> Element {
-	let mut theme = use_signal(|| "light".to_string());
-	use_context_provider(|| theme); // Provide a type to children
-	rsx! { Child {} }
-}
-
-#[component]
-fn Child() -> Element {
-	let theme = use_context::<Signal<String>>(); // Consume the same type
-	rsx! {
-		div {
-			"Current theme: {theme}"
-		}
-	}
-}
-```
-
-# Async
-
-For state that depends on an asynchronous operation (like a network request), Dioxus provides a hook called `use_resource`. This hook manages the lifecycle of the async task and provides the result to your component.
-
-* The `use_resource` hook takes an `async` closure. It re-runs this closure whenever any signals it depends on (reads) are updated
-* The `Resource` object returned can be in several states when read:
-1. `None` if the resource is still loading
-2. `Some(value)` if the resource has successfully loaded
-
-```rust
-let mut dog = use_resource(move || async move {
-	// api request
-});
-
-match dog() {
-	Some(dog_info) => rsx! { Dog { dog_info } },
-	None => rsx! { "Loading..." },
-}
-```
-
-# Routing
-
-All possible routes are defined in a single Rust `enum` that derives `Routable`. Each variant represents a route and is annotated with `#[route("/path")]`. Dynamic Segments can capture parts of the URL path as parameters by using `:name` in the route string. These become fields in the enum variant.
-
-The `Router<Route> {}` component is the entry point that manages rendering the correct component for the current URL.
-
-You can use the `#[layout(NavBar)]` to create a layout shared between pages and place an `Outlet<Route> {}` inside your layout component. The child routes will be rendered in the outlet.
-
-```rust
-#[derive(Routable, Clone, PartialEq)]
-enum Route {
-	#[layout(NavBar)] // This will use NavBar as the layout for all routes
-		#[route("/")]
-		Home {},
-		#[route("/blog/:id")] // Dynamic segment
-		BlogPost { id: i32 },
-}
-
-#[component]
-fn NavBar() -> Element {
-	rsx! {
-		a { href: "/", "Home" }
-		Outlet<Route> {} // Renders Home or BlogPost
-	}
-}
-
-#[component]
-fn App() -> Element {
-	rsx! { Router::<Route> {} }
-}
-```
-
-```toml
-dioxus = { version = "0.7.1", features = ["router"] }
-```
-
-# Fullstack
-
-Fullstack enables server rendering and ipc calls. It uses Cargo features (`server` and a client feature like `web`) to split the code into a server and client binaries.
-
-```toml
-dioxus = { version = "0.7.1", features = ["fullstack"] }
-```
-
-## Server Functions
-
-Use the `#[post]` / `#[get]` macros to define an `async` function that will only run on the server. On the server, this macro generates an API endpoint. On the client, it generates a function that makes an HTTP request to that endpoint.
-
-```rust
-#[post("/api/double/:path/&query")]
-async fn double_server(number: i32, path: String, query: i32) -> Result<i32, ServerFnError> {
-	tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-	Ok(number * 2)
-}
-```
-
-## Hydration
-
-Hydration is the process of making a server-rendered HTML page interactive on the client. The server sends the initial HTML, and then the client-side runs, attaches event listeners, and takes control of future rendering.
-
-### Errors
-The initial UI rendered by the component on the client must be identical to the UI rendered on the server.
-
-* Use the `use_server_future` hook instead of `use_resource`. It runs the future on the server, serializes the result, and sends it to the client, ensuring the client has the data immediately for its first render.
-* Any code that relies on browser-specific APIs (like accessing `localStorage`) must be run *after* hydration. Place this code inside a `use_effect` hook.
+- Empty-grid state: zero search results shows a blank grid; want `adw::StatusPage` in a
+  `gtk::Stack`.
+- `errors.rs` is commented out — implement `AppError` or delete.
+- Style polish against the pumpbin/Catppuccin reference (`assets/example_style.png`).
+- Book detail page (planned): async full-size cover fetch from `cover_url` lives here.

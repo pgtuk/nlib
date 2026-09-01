@@ -60,5 +60,6 @@ fn doc_to_book(doc: OpenLibraryBook) -> BookDraft {
         author,
         cover_url,
         description,
+        cover_bytes: None,
     }
 }

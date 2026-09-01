@@ -1,0 +1,119 @@
+:root {
+    /* Backgrounds: base < mantle for a subtle depth difference */
+    --window-bg-color: #24273a;   /* base   — main window */
+    --view-bg-color: #1e2030;     /* mantle — text views, scrolled areas */
+    --headerbar-bg-color: #1e2030;/* mantle — top bar sits darker than content */
+    --card-bg-color: #363a4f;     /* surface0 — cards, entry rows, list rows */
+    --popover-bg-color: #363a4f;  /* surface0 — dropdowns, menus */
+    --dialog-bg-color: #24273a;   /* base */
+
+    /* Foreground: lavender-blue text, never pure white */
+    --window-fg-color: #cad3f5;   /* text */
+    --headerbar-fg-color: #cad3f5;
+    --card-fg-color: #cad3f5;
+    --view-fg-color: #cad3f5;
+    --dialog-fg-color: #cad3f5;
+
+    /* Accent: blue for primary actions + selection */
+    --accent-bg-color: #8aadf4;   /* blue   — filled accent (button bg) */
+    --accent-fg-color: #1e2030;   /* dark text ON the accent fill */
+    --accent-color: #8aadf4;      /* blue   — accent text/icons on dark bg */
+
+    /* Semantic colors */
+    --destructive-bg-color: #ed8796; /* red */
+    --destructive-fg-color: #1e2030;
+    --success-color: #a6da95;        /* green — checkmarks/status */
+    --success-bg-color: #a6da95;
+    --warning-color: #eed49f;        /* yellow */
+    --error-color: #ed8796;          /* red — drives the .error field outline */
+
+    --border-color: #494d64;         /* surface1 */
+    --window-radius: 8px;
+}
+
+* {
+    font-family: monospace;
+}
+
+/* Cards: flat surface, hairline border, gentle rounding, no shadow */
+.card {
+    background-color: #363a4f;
+    border: 1px solid #494d64;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+/* Book grid: give tiles breathing room. Spacing between tiles is set in Rust
+   (set_row_spacing / set_column_spacing on the FlowBox); this only handles the
+   selected/hover chrome GTK adds to each flowboxchild wrapper. */
+flowboxchild {
+    padding: 4px;
+    border-radius: 8px;
+}
+flowboxchild:selected {
+    background-color: alpha(#8aadf4, 0.15);
+}
+
+/* Buttons: bordered rectangles, flat */
+button {
+    border: 1px solid #494d64;
+    border-radius: 6px;
+    background-color: #363a4f;
+    color: #cad3f5;
+}
+button:hover {
+    background-color: #494d64;
+}
+
+/* Primary action button (add_css_class "suggested-action") uses the accent */
+button.suggested-action {
+    background-color: #8aadf4;
+    color: #1e2030;
+    border-color: #8aadf4;
+    font-weight: bold;
+}
+button.suggested-action:hover {
+    background-color: #b7bdf8; /* lavender — lighter on hover */
+}
+
+/* Search + text entries */
+entry,
+.search-entry {
+    border-radius: 6px;
+    border: 1px solid #494d64;
+    background-color: #1e2030;
+}
+
+/* The description TextView, wrapped in a .card ScrolledWindow */
+textview {
+    background-color: transparent;
+    color: #cad3f5;
+}
+textview text {
+    background-color: transparent;
+}
+
+/* Invalid required field (add_css_class "error" on save) */
+.error {
+    border-color: #ed8796;
+    box-shadow: inset 0 0 0 1px #ed8796;
+}
+
+/* Boxed result list in the dialog (add_css_class "boxed-list") */
+.boxed-list {
+    border: 1px solid #494d64;
+    border-radius: 8px;
+}
+
+/* Dim secondary text (author lines, subtitles) — subtext0 */
+.dim-label {
+    color: #a5adcb;
+    opacity: 1;
+}
+
+/* Cover preview placeholder */
+.cover-placeholder {
+    border: 1px dashed #494d64;
+    border-radius: 8px;
+    background-color: #1e2030;
+}
