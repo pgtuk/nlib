@@ -2,9 +2,9 @@ use relm4::adw::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
-use super::{clean_entry, clean_text};
+use super::{clean_entry, clean_text, pick_image_file, texture_from_bytes};
 use crate::models::Book;
-use crate::services::covers::{self, resize_cover_image};
+use crate::services::covers::{self, process_image_bytes};
 
 pub struct BookViewModal {
     book: Book,
@@ -27,12 +27,17 @@ pub enum BookViewOutput {
     Delete(i64),
 }
 
+#[derive(Debug)]
+pub enum BookViewCmd {
+    CoverProcessed(Vec<u8>),
+}
+
 #[relm4::component(pub)]
 impl Component for BookViewModal {
     type Init = Book;
     type Input = BookViewInput;
     type Output = BookViewOutput;
-    type CommandOutput = ();
+    type CommandOutput = BookViewCmd;
 
     view! {
         adw::Window {
@@ -201,6 +206,23 @@ impl Component for BookViewModal {
         ComponentParts { model, widgets }
     }
 
+    fn update_cmd_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        message: Self::CommandOutput,
+        _sender: ComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        match message {
+            BookViewCmd::CoverProcessed(resized) => {
+                if let Some(tex) = texture_from_bytes(&resized) {
+                    widgets.cover_picture.set_paintable(Some(&tex));
+                    self.pending_cover_bytes = Some(resized);
+                }
+            }
+        }
+    }
+
     fn update_with_view(
         &mut self,
         widgets: &mut Self::Widgets,
@@ -214,40 +236,17 @@ impl Component for BookViewModal {
             }
 
             BookViewInput::PickLocalImage => {
-                let filter = gtk::FileFilter::new();
-                filter.set_name(Some("Image files (*.png, *.jpg, *.jpeg, *.webp)"));
-                filter.add_pattern("*.png");
-                filter.add_pattern("*.jpg");
-                filter.add_pattern("*.jpeg");
-                filter.add_pattern("*.webp");
-
-                let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
-                filters.append(&filter);
-
-                let dialog = gtk::FileDialog::builder()
-                    .title("Select Book Cover Image")
-                    .filters(&filters)
-                    .build();
-
-                let sender_clone = sender.clone();
-                dialog.open(Some(root), gtk::gio::Cancellable::NONE, move |res| {
-                    if let Ok(file) = res {
-                        if let Some(path) = file.path() {
-                            if let Ok(bytes) = std::fs::read(&path) {
-                                sender_clone.input(BookViewInput::LocalImageLoaded(bytes));
-                            }
-                        }
-                    }
+                let sender = sender.clone();
+                pick_image_file(Some(root), move |bytes| {
+                    sender.input(BookViewInput::LocalImageLoaded(bytes));
                 });
             }
 
             BookViewInput::LocalImageLoaded(raw) => {
-                let resized = resize_cover_image(&raw);
-                let bytes = gtk::glib::Bytes::from(&resized[..]);
-                if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
-                    widgets.cover_picture.set_paintable(Some(&tex));
-                    self.pending_cover_bytes = Some(resized);
-                }
+                sender.oneshot_command(async move {
+                    let resized = process_image_bytes(raw).await;
+                    BookViewCmd::CoverProcessed(resized)
+                });
             }
 
             BookViewInput::Save => {

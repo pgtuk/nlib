@@ -40,7 +40,7 @@ pub fn resize_cover_image(bytes: &[u8]) -> Vec<u8> {
         let resized = img.resize(
             TARGET_WIDTH,
             TARGET_HEIGHT,
-            image::imageops::FilterType::Lanczos3,
+            image::imageops::FilterType::Triangle,
         );
         let mut buffer = Cursor::new(Vec::new());
         if resized
@@ -53,24 +53,30 @@ pub fn resize_cover_image(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
-/// Fetches cover bytes from URL and resizes them
+/// Asynchronously processes and resizes image bytes off the main thread
+pub async fn process_image_bytes(raw: Vec<u8>) -> Vec<u8> {
+    relm4::tokio::task::spawn_blocking(move || resize_cover_image(&raw))
+        .await
+        .unwrap_or_default()
+}
+
+/// Fetches cover bytes from URL and resizes them off the main thread
 pub async fn fetch_and_resize(url: &str) -> Result<Vec<u8>, reqwest::Error> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()?;
     let raw = client.get(url).send().await?.bytes().await?;
-    Ok(resize_cover_image(&raw))
+    Ok(process_image_bytes(raw.to_vec()).await)
 }
 
-// sync: bytes already in hand (the reuse path)
+// sync: bytes already in hand and normalized
 pub fn save_cover_bytes(id: i64, bytes: &[u8]) -> Result<PathBuf, CoverError> {
     let path = COVERS_DIR
         .as_ref()
         .ok_or(CoverError::NoDataDir)?
         .join(format!("{id}.jpg"));
 
-    let processed = resize_cover_image(bytes);
-    std::fs::write(&path, processed)?;
+    std::fs::write(&path, bytes)?;
     Ok(path)
 }
 

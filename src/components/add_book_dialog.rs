@@ -2,9 +2,9 @@ use relm4::adw::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
-use super::{clean_entry, clean_text};
+use super::{clean_entry, clean_text, pick_image_file, texture_from_bytes};
 use crate::models::BookDraft;
-use crate::services::covers::{fetch_and_resize, resize_cover_image};
+use crate::services::covers::{fetch_and_resize, process_image_bytes};
 use crate::services::google_books::search_google_books;
 use crate::services::openlibrary::search_openlibrary;
 
@@ -361,36 +361,17 @@ impl Component for AddBookDialog {
             }
 
             AddBookDialogMsg::PickLocalImage => {
-                let filter = gtk::FileFilter::new();
-                filter.set_name(Some("Image files (*.png, *.jpg, *.jpeg, *.webp)"));
-                filter.add_pattern("*.png");
-                filter.add_pattern("*.jpg");
-                filter.add_pattern("*.jpeg");
-                filter.add_pattern("*.webp");
-
-                let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
-                filters.append(&filter);
-
-                let dialog = gtk::FileDialog::builder()
-                    .title("Select Book Cover Image")
-                    .filters(&filters)
-                    .build();
-
-                let sender_clone = sender.clone();
-                dialog.open(Some(root), gtk::gio::Cancellable::NONE, move |res| {
-                    if let Ok(file) = res {
-                        if let Some(path) = file.path() {
-                            if let Ok(bytes) = std::fs::read(&path) {
-                                sender_clone.input(AddBookDialogMsg::LocalImageLoaded(bytes));
-                            }
-                        }
-                    }
+                let sender = sender.clone();
+                pick_image_file(Some(root), move |bytes| {
+                    sender.input(AddBookDialogMsg::LocalImageLoaded(bytes));
                 });
             }
 
             AddBookDialogMsg::LocalImageLoaded(raw) => {
-                let resized = resize_cover_image(&raw);
-                set_cover_preview(&mut self.cover_bytes, widgets, resized);
+                sender.oneshot_command(async move {
+                    let resized = process_image_bytes(raw).await;
+                    DialogCmd::CoverLoaded(resized)
+                });
             }
 
             AddBookDialogMsg::Save => {
@@ -539,8 +520,7 @@ fn set_cover_preview(
     widgets: &mut AddBookDialogWidgets,
     resized_bytes: Vec<u8>,
 ) {
-    let g_bytes = gtk::glib::Bytes::from(&resized_bytes[..]);
-    if let Ok(tex) = gtk::gdk::Texture::from_bytes(&g_bytes) {
+    if let Some(tex) = texture_from_bytes(&resized_bytes) {
         widgets.cover_preview.set_paintable(Some(&tex));
         widgets.cover_placeholder.set_visible(false);
         widgets.cover_preview.set_visible(true);
