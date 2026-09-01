@@ -18,5 +18,4 @@ pub struct Book {
     pub author: String,
     pub description: String,
     pub cover_url: String,
-    pub cover_path: Option<String>,
 }

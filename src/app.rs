@@ -1,7 +1,6 @@
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
-use std::path::PathBuf;
 
 use crate::components::add_book_dialog::{AddBookDialog, AddBookDialogOutput};
 use crate::components::book_card::BookCard;
@@ -19,6 +18,7 @@ pub struct App {
 
 impl App {
     fn refresh_grid(&mut self) {
+        self.all_books = self.db.books().unwrap_or_default();
         let mut guard = self.books.guard();
         guard.clear();
         for book in self.all_books.iter().filter(|b| {
@@ -37,17 +37,12 @@ pub enum AppMsg {
     SaveBook(BookDraft),
 }
 
-#[derive(Debug)]
-pub enum AppCmd {
-    CoverReady(i64, PathBuf),
-}
-
 #[relm4::component(pub)]
 impl Component for App {
     type Init = Db;
     type Input = AppMsg;
     type Output = ();
-    type CommandOutput = AppCmd;
+    type CommandOutput = ();
 
     view! {
         adw::ApplicationWindow {
@@ -58,6 +53,11 @@ impl Component for App {
                 set_orientation: gtk::Orientation::Vertical,
 
                 adw::HeaderBar {
+                    pack_start = &gtk::Label {
+                        set_label: "📚 Nika's lib",
+                        add_css_class: "heading"
+                    },
+
                     #[wrap(Some)]
                         set_title_widget = &gtk::SearchEntry {
                             set_placeholder_text: Some("Search by title or author..."),
@@ -111,7 +111,7 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match message {
             AppMsg::OpenAddDialog => {
                 self.dialog.widget().present();
@@ -124,55 +124,19 @@ impl Component for App {
                         return;
                     }
                 };
-                self.all_books = self.db.books().unwrap_or_default();
                 self.refresh_grid();
 
-                match draft.cover_bytes {
-                    Some(raw) => match covers::save_cover_bytes(id, &raw) {
-                        Ok(path) => {
-                            let _ = self.db.set_cover_path(id, &path.to_string_lossy());
-                            self.all_books = self.db.books().unwrap_or_default();
-                            self.refresh_grid();
-                        }
-                        Err(e) => eprintln!("save cover failed: {e}"),
-                    },
-                    None if !draft.cover_url.is_empty() => {
-                        let url = draft.cover_url.clone();
-                        sender.oneshot_command(async move {
-                            match covers::download_cover(&url, id).await {
-                                Ok(path) => AppCmd::CoverReady(id, path),
-                                Err(e) => {
-                                    eprintln!("cover download failed: {e}");
-                                    AppCmd::CoverReady(id, PathBuf::new())
-                                }
-                            }
-                        });
+                if let Some(raw) = draft.cover_bytes { match covers::save_cover_bytes(id, &raw) {
+                    Ok(_) => {
+                        self.refresh_grid();
                     }
-                    None => {}
-                }
+                    Err(e) => eprintln!("save cover failed: {e}"),
+                } }
             }
             AppMsg::Search(q) => {
                 self.query = q.to_lowercase();
                 self.refresh_grid();
             }
         }
-    }
-
-    fn update_cmd(
-        &mut self,
-        msg: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
-        let AppCmd::CoverReady(id, path) = msg;
-        if path.as_os_str().is_empty() {
-            return; // download failed — the PathBuf::new() sentinel
-        }
-        if let Err(e) = self.db.set_cover_path(id, &path.to_string_lossy()) {
-            eprintln!("failed to store cover path: {e}");
-            return;
-        }
-        self.all_books = self.db.books().unwrap_or_default();
-        self.refresh_grid();
     }
 }

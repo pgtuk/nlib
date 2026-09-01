@@ -38,8 +38,7 @@ impl Db {
                 title TEXT NOT NULL,
                 author TEXT NOT NULL,
                 description TEXT,
-                cover_url TEXT,
-                cover_path TEXT
+                cover_url TEXT
             )",
             [],
         )?;
@@ -54,7 +53,7 @@ impl Db {
     pub fn books(&self) -> Result<Vec<Book>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, author, description, cover_url, cover_path FROM books ORDER BY id DESC",
+            "SELECT id, title, author, description, cover_url FROM books ORDER BY id DESC",
         )?;
 
         let books_iter = stmt.query_map([], |row| {
@@ -64,7 +63,6 @@ impl Db {
                 author: row.get(2)?,
                 description: row.get(3)?,
                 cover_url: row.get(4)?,
-                cover_path: row.get::<_, Option<String>>(5)?,
             })
         })?;
 
@@ -88,14 +86,6 @@ impl Db {
         )?;
 
         Ok(conn.last_insert_rowid())
-    }
-
-    pub fn set_cover_path(&self, id: i64, path: &str) -> Result<()> {
-        self.conn().execute(
-            "UPDATE books SET cover_path = ?1 WHERE id = ?2",
-            params![path, id],
-        )?;
-        Ok(())
     }
 }
 

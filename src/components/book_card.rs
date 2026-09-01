@@ -3,6 +3,7 @@ use relm4::gtk;
 use relm4::gtk::prelude::*;
 
 use crate::models::Book;
+use crate::services::covers;
 
 pub struct BookCard {
     book: Book,
@@ -23,7 +24,8 @@ impl FactoryComponent for BookCard {
             add_css_class: "card",
 
             gtk::Picture {
-                set_filename: self.book.cover_path.clone(),
+                #[watch]
+                set_filename: covers::existing_cover(self.book.id),
                 set_content_fit: gtk::ContentFit::Contain,
                 set_height_request: 220,
             },
@@ -47,10 +49,16 @@ impl FactoryComponent for BookCard {
     }
 
     fn init_model(
-        init: Self::Init,
+        book: Self::Init,
         _index: &Self::Index,
-        _sender: relm4::prelude::FactorySender<Self>,
+        sender: relm4::prelude::FactorySender<Self>,
     ) -> Self {
-        BookCard { book: init }
+        if covers::existing_cover(book.id).is_none() && !book.cover_url.is_empty() {
+            let (id, url) = (book.id, book.cover_url.clone());
+            sender.oneshot_command(async move {
+                covers::download_cover(&url, id).await.ok();
+            });
+        }
+        BookCard { book }
     }
 }
