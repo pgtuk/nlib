@@ -7,14 +7,6 @@ use crate::services::covers::{self, resize_cover_image};
 
 pub struct BookViewModal {
     book: Book,
-    title_entry: adw::EntryRow,
-    author_entry: adw::EntryRow,
-    cover_entry: adw::EntryRow,
-    read_by_nika_switch: adw::SwitchRow,
-    read_by_petya_switch: adw::SwitchRow,
-    description_view: gtk::TextView,
-
-    cover_picture: gtk::Picture,
     pending_cover_bytes: Option<Vec<u8>>,
 }
 
@@ -32,20 +24,6 @@ pub enum BookViewInput {
 pub enum BookViewOutput {
     Save(Book),
     Delete(i64),
-}
-
-impl BookViewModal {
-    fn updated_book(&self) -> Book {
-        Book {
-            id: self.book.id,
-            title: clean_entry(&self.title_entry),
-            author: clean_entry(&self.author_entry),
-            description: clean_text(&self.description_view),
-            cover_url: clean_entry(&self.cover_entry),
-            read_by_nika: self.read_by_nika_switch.is_active(),
-            read_by_petya: self.read_by_petya_switch.is_active(),
-        }
-    }
 }
 
 #[relm4::component(pub)]
@@ -109,8 +87,8 @@ impl Component for BookViewModal {
                                 set_spacing: 8,
                                 set_valign: gtk::Align::Start,
 
-                                #[local_ref]
-                                cover_picture -> gtk::Picture {
+                                #[name = "cover_picture"]
+                                gtk::Picture {
                                     set_content_fit: gtk::ContentFit::Contain,
                                     set_size_request: (320, 460),
                                     add_css_class: "card",
@@ -131,16 +109,18 @@ impl Component for BookViewModal {
                                 adw::PreferencesGroup {
                                     set_title: "Book details",
 
-                                    #[local_ref]
-                                    title_entry -> adw::EntryRow {
+                                    #[name = "title_entry"]
+                                    adw::EntryRow {
                                         set_title: "Title",
                                     },
-                                    #[local_ref]
-                                    author_entry -> adw::EntryRow {
+
+                                    #[name = "author_entry"]
+                                    adw::EntryRow {
                                         set_title: "Author",
                                     },
-                                    #[local_ref]
-                                    cover_entry -> adw::EntryRow {
+
+                                    #[name = "cover_entry"]
+                                    adw::EntryRow {
                                         set_title: "Cover image URL",
                                     },
                                 },
@@ -148,12 +128,13 @@ impl Component for BookViewModal {
                                 adw::PreferencesGroup {
                                     set_title: "Reading status",
 
-                                    #[local_ref]
-                                    read_by_nika_switch -> adw::SwitchRow {
+                                    #[name = "read_by_nika_switch"]
+                                    adw::SwitchRow {
                                         set_title: "Read by Nika",
                                     },
-                                    #[local_ref]
-                                    read_by_petya_switch -> adw::SwitchRow {
+
+                                    #[name = "read_by_petya_switch"]
+                                    adw::SwitchRow {
                                         set_title: "Read by Petya",
                                     },
                                 },
@@ -169,8 +150,8 @@ impl Component for BookViewModal {
                                     set_vexpand: true,
                                     add_css_class: "card",
 
-                                    #[local_ref]
-                                    description_view -> gtk::TextView {
+                                    #[name = "description_view"]
+                                    gtk::TextView {
                                         set_wrap_mode: gtk::WrapMode::WordChar,
                                         set_top_margin: 8,
                                         set_bottom_margin: 8,
@@ -191,54 +172,41 @@ impl Component for BookViewModal {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let title_entry = adw::EntryRow::default();
-        title_entry.set_text(&book.title);
-
-        let author_entry = adw::EntryRow::default();
-        author_entry.set_text(&book.author);
-
-        let cover_entry = adw::EntryRow::default();
-        cover_entry.set_text(&book.cover_url);
-
-        let read_by_nika_switch = adw::SwitchRow::default();
-        read_by_nika_switch.set_active(book.read_by_nika);
-
-        let read_by_petya_switch = adw::SwitchRow::default();
-        read_by_petya_switch.set_active(book.read_by_petya);
-
-        let description_view = gtk::TextView::new();
-        description_view.buffer().set_text(&book.description);
-
-        let cover_picture = gtk::Picture::new();
-        if let Some(path) = covers::existing_cover(book.id) {
-            cover_picture.set_filename(Some(path));
-        }
-
         let model = BookViewModal {
             book,
-            title_entry,
-            author_entry,
-            cover_entry,
-            read_by_nika_switch,
-            read_by_petya_switch,
-            description_view,
-            cover_picture,
             pending_cover_bytes: None,
         };
 
-        let title_entry = &model.title_entry;
-        let author_entry = &model.author_entry;
-        let cover_entry = &model.cover_entry;
-        let read_by_nika_switch = &model.read_by_nika_switch;
-        let read_by_petya_switch = &model.read_by_petya_switch;
-        let description_view = &model.description_view;
-        let cover_picture = &model.cover_picture;
-
         let widgets = view_output!();
+
+        widgets.title_entry.set_text(&model.book.title);
+        widgets.author_entry.set_text(&model.book.author);
+        widgets.cover_entry.set_text(&model.book.cover_url);
+        widgets
+            .read_by_nika_switch
+            .set_active(model.book.read_by_nika);
+        widgets
+            .read_by_petya_switch
+            .set_active(model.book.read_by_petya);
+        widgets
+            .description_view
+            .buffer()
+            .set_text(&model.book.description);
+
+        if let Some(path) = covers::existing_cover(model.book.id) {
+            widgets.cover_picture.set_filename(Some(path));
+        }
+
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        msg: Self::Input,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         match msg {
             BookViewInput::Cancel => {
                 root.close();
@@ -276,24 +244,32 @@ impl Component for BookViewModal {
                 let resized = resize_cover_image(&raw);
                 let bytes = gtk::glib::Bytes::from(&resized[..]);
                 if let Ok(tex) = gtk::gdk::Texture::from_bytes(&bytes) {
-                    self.cover_picture.set_paintable(Some(&tex));
+                    widgets.cover_picture.set_paintable(Some(&tex));
                     self.pending_cover_bytes = Some(resized);
                 }
             }
 
             BookViewInput::Save => {
                 let mut has_error = false;
-                let updated = self.updated_book();
+                let updated = Book {
+                    id: self.book.id,
+                    title: clean_entry(&widgets.title_entry),
+                    author: clean_entry(&widgets.author_entry),
+                    description: clean_text(&widgets.description_view),
+                    cover_url: clean_entry(&widgets.cover_entry),
+                    read_by_nika: widgets.read_by_nika_switch.is_active(),
+                    read_by_petya: widgets.read_by_petya_switch.is_active(),
+                };
 
-                self.title_entry.remove_css_class("error");
-                self.author_entry.remove_css_class("error");
+                widgets.title_entry.remove_css_class("error");
+                widgets.author_entry.remove_css_class("error");
 
                 if updated.title.is_empty() {
-                    self.title_entry.add_css_class("error");
+                    widgets.title_entry.add_css_class("error");
                     has_error = true;
                 }
                 if updated.author.is_empty() {
-                    self.author_entry.add_css_class("error");
+                    widgets.author_entry.add_css_class("error");
                     has_error = true;
                 }
                 if has_error {

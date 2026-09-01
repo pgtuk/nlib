@@ -39,88 +39,11 @@ pub enum DialogCmd {
     Error(String),
 }
 
+#[derive(Default)]
 pub struct AddBookDialog {
-    window: adw::Window,
-    toast_overlay: adw::ToastOverlay,
-
-    title_entry: adw::EntryRow,
-    author_entry: adw::EntryRow,
-    cover_entry: adw::EntryRow,
-    read_by_nika_switch: adw::SwitchRow,
-    read_by_petya_switch: adw::SwitchRow,
-    description_view: gtk::TextView,
-
-    cover_bytes: Vec<u8>,
-    cover_preview: gtk::Picture,
-    cover_placeholder: gtk::Frame,
-    cover_placeholder_label: gtk::Label,
-
     provider: SearchProvider,
-    search_entry: gtk::SearchEntry,
-    search_button: gtk::Button,
-    openlibrary_btn: gtk::ToggleButton,
-    google_books_btn: gtk::ToggleButton,
-    results_list: gtk::ListBox,
-    results_scroll: gtk::ScrolledWindow,
     results: Vec<BookDraft>,
-}
-
-impl AddBookDialog {
-    fn draft(&self) -> BookDraft {
-        BookDraft {
-            title: clean_entry(&self.title_entry),
-            author: clean_entry(&self.author_entry),
-            description: clean_text(&self.description_view),
-            cover_url: clean_entry(&self.cover_entry),
-            cover_bytes: if self.cover_bytes.is_empty() {
-                None
-            } else {
-                Some(self.cover_bytes.clone())
-            },
-            read_by_nika: self.read_by_nika_switch.is_active(),
-            read_by_petya: self.read_by_petya_switch.is_active(),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.title_entry.set_text("");
-        self.author_entry.set_text("");
-        self.cover_entry.set_text("");
-        self.read_by_nika_switch.set_active(false);
-        self.read_by_petya_switch.set_active(false);
-        self.description_view.buffer().set_text("");
-
-        self.search_entry.set_text("");
-        self.clear_results();
-    }
-
-    fn clear_results(&mut self) {
-        self.results.clear();
-        while let Some(child) = self.results_list.first_child() {
-            self.results_list.remove(&child);
-        }
-        self.results_scroll.set_visible(false);
-        self.show_cover_placeholder(Some("Cover preview"));
-    }
-
-    fn show_cover_placeholder(&mut self, message: Option<&str>) {
-        self.cover_preview.set_paintable(gtk::gdk::Paintable::NONE);
-        self.cover_preview.set_visible(false);
-        self.cover_placeholder_label
-            .set_label(message.unwrap_or("Cover preview"));
-        self.cover_placeholder.set_visible(true);
-        self.cover_bytes.clear();
-    }
-
-    fn set_cover_image(&mut self, resized_bytes: Vec<u8>) {
-        let g_bytes = gtk::glib::Bytes::from(&resized_bytes[..]);
-        if let Ok(tex) = gtk::gdk::Texture::from_bytes(&g_bytes) {
-            self.cover_preview.set_paintable(Some(&tex));
-            self.cover_placeholder.set_visible(false);
-            self.cover_preview.set_visible(true);
-            self.cover_bytes = resized_bytes;
-        }
-    }
+    cover_bytes: Vec<u8>,
 }
 
 #[relm4::component(pub)]
@@ -142,8 +65,8 @@ impl Component for AddBookDialog {
                 gtk::glib::Propagation::Proceed
             },
 
-            #[local_ref]
-            toast_overlay -> adw::ToastOverlay {
+            #[name = "toast_overlay"]
+            adw::ToastOverlay {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
 
@@ -189,8 +112,8 @@ impl Component for AddBookDialog {
                                         set_halign: gtk::Align::Start,
                                         add_css_class: "linked",
 
-                                        #[local_ref]
-                                        openlibrary_btn -> gtk::ToggleButton {
+                                        #[name = "openlibrary_btn"]
+                                        gtk::ToggleButton {
                                             set_label: "OpenLibrary",
                                             set_active: true,
                                             connect_toggled[sender] => move |btn| {
@@ -200,9 +123,10 @@ impl Component for AddBookDialog {
                                             },
                                         },
 
-                                        #[local_ref]
-                                        google_books_btn -> gtk::ToggleButton {
+                                        #[name = "google_books_btn"]
+                                        gtk::ToggleButton {
                                             set_label: "Google Books",
+                                            set_group: Some(&openlibrary_btn),
                                             connect_toggled[sender] => move |btn| {
                                                 if btn.is_active() {
                                                     sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
@@ -215,29 +139,29 @@ impl Component for AddBookDialog {
                                 gtk::Box {
                                     set_spacing: 6,
 
-                                    #[local_ref]
-                                    search_entry -> gtk::SearchEntry {
+                                    #[name = "search_entry"]
+                                    gtk::SearchEntry {
                                         set_hexpand: true,
                                         set_placeholder_text: Some("Title, author, or ISBN..."),
                                         connect_activate => AddBookDialogMsg::Search,
                                         connect_search_changed => AddBookDialogMsg::ClearSearchResults,
                                     },
 
-                                    #[local_ref]
-                                    search_button -> gtk::Button {
+                                    #[name = "search_button"]
+                                    gtk::Button {
                                         set_label: "Search",
                                         connect_clicked => AddBookDialogMsg::Search,
                                     },
                                 },
                             },
 
-                            #[local_ref]
-                            results_scroll -> gtk::ScrolledWindow {
+                            #[name = "results_scroll"]
+                            gtk::ScrolledWindow {
                                 set_min_content_height: 120,
                                 set_visible: false,
 
-                                #[local_ref]
-                                results_list -> gtk::ListBox {
+                                #[name = "results_list"]
+                                gtk::ListBox {
                                     add_css_class: "boxed-list",
                                     connect_row_activated[sender] => move |_, row| {
                                         sender.input(AddBookDialogMsg::SelectResult(row.index() as usize));
@@ -254,13 +178,13 @@ impl Component for AddBookDialog {
                                     set_spacing: 8,
                                     set_valign: gtk::Align::Start,
 
-                                    #[local_ref]
-                                    cover_placeholder -> gtk::Frame {
+                                    #[name = "cover_placeholder"]
+                                    gtk::Frame {
                                         set_size_request: (320, 460),
                                         add_css_class: "cover-placeholder",
 
-                                        #[local_ref]
-                                        cover_placeholder_label -> gtk::Label {
+                                        #[name = "cover_placeholder_label"]
+                                        gtk::Label {
                                             set_label: "Cover preview",
                                             add_css_class: "dim-label",
                                             set_justify: gtk::Justification::Center,
@@ -271,8 +195,8 @@ impl Component for AddBookDialog {
                                         },
                                     },
 
-                                    #[local_ref]
-                                    cover_preview -> gtk::Picture {
+                                    #[name = "cover_preview"]
+                                    gtk::Picture {
                                         set_visible: false,
                                         set_content_fit: gtk::ContentFit::Contain,
                                         set_size_request: (320, 460),
@@ -294,12 +218,14 @@ impl Component for AddBookDialog {
                                     adw::PreferencesGroup {
                                         set_title: "Book details",
 
-                                        #[local_ref]
-                                        title_entry -> adw::EntryRow { set_title: "Title" },
-                                        #[local_ref]
-                                        author_entry -> adw::EntryRow { set_title: "Author" },
-                                        #[local_ref]
-                                        cover_entry -> adw::EntryRow {
+                                        #[name = "title_entry"]
+                                        adw::EntryRow { set_title: "Title" },
+
+                                        #[name = "author_entry"]
+                                        adw::EntryRow { set_title: "Author" },
+
+                                        #[name = "cover_entry"]
+                                        adw::EntryRow {
                                             set_title: "Cover image URL (optional)",
                                             connect_changed[sender] => move |entry| {
                                                 sender.input(AddBookDialogMsg::CoverUrlChanged(entry.text().to_string()));
@@ -310,12 +236,13 @@ impl Component for AddBookDialog {
                                     adw::PreferencesGroup {
                                         set_title: "Reading status",
 
-                                        #[local_ref]
-                                        read_by_nika_switch -> adw::SwitchRow {
+                                        #[name = "read_by_nika_switch"]
+                                        adw::SwitchRow {
                                             set_title: "Read by Nika",
                                         },
-                                        #[local_ref]
-                                        read_by_petya_switch -> adw::SwitchRow {
+
+                                        #[name = "read_by_petya_switch"]
+                                        adw::SwitchRow {
                                             set_title: "Read by Petya",
                                         },
                                     },
@@ -331,8 +258,8 @@ impl Component for AddBookDialog {
                                         set_vexpand: true,
                                         add_css_class: "card",
 
-                                        #[local_ref]
-                                        description_view -> gtk::TextView {
+                                        #[name = "description_view"]
+                                        gtk::TextView {
                                             set_wrap_mode: gtk::WrapMode::WordChar,
                                             set_top_margin: 8,
                                             set_bottom_margin: 8,
@@ -354,70 +281,24 @@ impl Component for AddBookDialog {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let openlibrary_btn = gtk::ToggleButton::with_label("OpenLibrary");
-        let google_books_btn = gtk::ToggleButton::with_label("Google Books");
-        google_books_btn.set_group(Some(&openlibrary_btn));
-
-        let cover_placeholder_label = gtk::Label::new(Some("Cover preview"));
-        let toast_overlay = adw::ToastOverlay::new();
-
-        let model = AddBookDialog {
-            window: root.clone(),
-            toast_overlay,
-            title_entry: adw::EntryRow::default(),
-            author_entry: adw::EntryRow::default(),
-            cover_entry: adw::EntryRow::default(),
-            read_by_nika_switch: adw::SwitchRow::default(),
-            read_by_petya_switch: adw::SwitchRow::default(),
-            description_view: gtk::TextView::new(),
-            cover_bytes: Vec::new(),
-            cover_preview: gtk::Picture::new(),
-            cover_placeholder: gtk::Frame::new(None),
-            cover_placeholder_label,
-            provider: SearchProvider::OpenLibrary,
-            search_entry: gtk::SearchEntry::new(),
-            search_button: gtk::Button::new(),
-            openlibrary_btn,
-            google_books_btn,
-            results_list: gtk::ListBox::new(),
-            results_scroll: gtk::ScrolledWindow::new(),
-            results: Vec::new(),
-        };
-
-        let toast_overlay = &model.toast_overlay;
-        let title_entry = &model.title_entry;
-        let author_entry = &model.author_entry;
-        let cover_entry = &model.cover_entry;
-        let read_by_nika_switch = &model.read_by_nika_switch;
-        let read_by_petya_switch = &model.read_by_petya_switch;
-        let description_view = &model.description_view;
-        let cover_preview = &model.cover_preview;
-        let cover_placeholder = &model.cover_placeholder;
-        let cover_placeholder_label = &model.cover_placeholder_label;
-        let search_entry = &model.search_entry;
-        let search_button = &model.search_button;
-        let openlibrary_btn = &model.openlibrary_btn;
-        let google_books_btn = &model.google_books_btn;
-        let results_list = &model.results_list;
-        let results_scroll = &model.results_scroll;
-
+        let model = AddBookDialog::default();
         let widgets = view_output!();
-
         ComponentParts { model, widgets }
     }
 
-    fn update_cmd(
+    fn update_cmd_with_view(
         &mut self,
+        widgets: &mut Self::Widgets,
         message: Self::CommandOutput,
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         match message {
             DialogCmd::SearchResults(results) => {
-                self.search_button.set_sensitive(true);
-                self.search_button.set_label("Search");
+                widgets.search_button.set_sensitive(true);
+                widgets.search_button.set_label("Search");
 
-                self.clear_results();
+                clear_results_ui(&mut self.results, widgets);
                 self.results = results;
 
                 for draft in &self.results {
@@ -442,30 +323,36 @@ impl Component for AddBookDialog {
                     }
 
                     row.set_activatable(true);
-                    self.results_list.append(&row);
+                    widgets.results_list.append(&row);
                 }
-                self.results_scroll.set_visible(!self.results.is_empty());
+                widgets.results_scroll.set_visible(!self.results.is_empty());
             }
 
             DialogCmd::CoverLoaded(resized) => {
-                self.set_cover_image(resized);
+                set_cover_preview(&mut self.cover_bytes, widgets, resized);
             }
 
             DialogCmd::Error(e) => {
-                self.search_button.set_sensitive(true);
-                self.search_button.set_label("Search");
+                widgets.search_button.set_sensitive(true);
+                widgets.search_button.set_label("Search");
                 let toast = adw::Toast::new(&e);
                 toast.set_timeout(5);
-                self.toast_overlay.add_toast(toast);
+                widgets.toast_overlay.add_toast(toast);
             }
         }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        message: Self::Input,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         match message {
             AddBookDialogMsg::Cancel => {
-                self.clear();
-                self.window.set_visible(false);
+                clear_form(&mut self.results, &mut self.cover_bytes, widgets);
+                root.set_visible(false);
             }
 
             AddBookDialogMsg::SetProvider(p) => {
@@ -502,22 +389,34 @@ impl Component for AddBookDialog {
 
             AddBookDialogMsg::LocalImageLoaded(raw) => {
                 let resized = resize_cover_image(&raw);
-                self.set_cover_image(resized);
+                set_cover_preview(&mut self.cover_bytes, widgets, resized);
             }
 
             AddBookDialogMsg::Save => {
                 let mut has_error = false;
-                let draft = self.draft();
+                let draft = BookDraft {
+                    title: clean_entry(&widgets.title_entry),
+                    author: clean_entry(&widgets.author_entry),
+                    description: clean_text(&widgets.description_view),
+                    cover_url: clean_entry(&widgets.cover_entry),
+                    cover_bytes: if self.cover_bytes.is_empty() {
+                        None
+                    } else {
+                        Some(self.cover_bytes.clone())
+                    },
+                    read_by_nika: widgets.read_by_nika_switch.is_active(),
+                    read_by_petya: widgets.read_by_petya_switch.is_active(),
+                };
 
-                self.title_entry.remove_css_class("error");
-                self.author_entry.remove_css_class("error");
+                widgets.title_entry.remove_css_class("error");
+                widgets.author_entry.remove_css_class("error");
 
                 if draft.title.is_empty() {
-                    self.title_entry.add_css_class("error");
+                    widgets.title_entry.add_css_class("error");
                     has_error = true;
                 }
                 if draft.author.is_empty() {
-                    self.author_entry.add_css_class("error");
+                    widgets.author_entry.add_css_class("error");
                     has_error = true;
                 }
                 if has_error {
@@ -525,17 +424,17 @@ impl Component for AddBookDialog {
                 }
 
                 let _ = sender.output(AddBookDialogOutput::Save(draft));
-                self.clear();
-                self.window.set_visible(false);
+                clear_form(&mut self.results, &mut self.cover_bytes, widgets);
+                root.set_visible(false);
             }
 
             AddBookDialogMsg::Search => {
-                let q = self.search_entry.text().trim().to_string();
+                let q = widgets.search_entry.text().trim().to_string();
                 if q.is_empty() {
                     return;
                 }
-                self.search_button.set_sensitive(false);
-                self.search_button.set_label("Searching...");
+                widgets.search_button.set_sensitive(false);
+                widgets.search_button.set_label("Searching...");
 
                 let provider = self.provider;
                 sender.oneshot_command(async move {
@@ -559,12 +458,11 @@ impl Component for AddBookDialog {
                     return;
                 };
 
-                self.title_entry.set_text(&d.title);
-                self.author_entry.set_text(&d.author);
-                self.cover_entry.set_text(&d.cover_url);
-                self.description_view.buffer().set_text(&d.description);
-
-                self.results_scroll.set_visible(false);
+                widgets.title_entry.set_text(&d.title);
+                widgets.author_entry.set_text(&d.author);
+                widgets.cover_entry.set_text(&d.cover_url);
+                widgets.description_view.buffer().set_text(&d.description);
+                widgets.results_scroll.set_visible(false);
 
                 // Trigger cover fetch or display "No cover available"
                 sender.input(AddBookDialogMsg::CoverUrlChanged(d.cover_url.clone()));
@@ -573,7 +471,11 @@ impl Component for AddBookDialog {
             AddBookDialogMsg::CoverUrlChanged(url) => {
                 let url = url.trim().to_string();
                 if url.is_empty() {
-                    self.show_cover_placeholder(Some("No cover image\navailable"));
+                    show_cover_placeholder(
+                        &mut self.cover_bytes,
+                        widgets,
+                        Some("No cover image\navailable"),
+                    );
                     return;
                 }
                 sender.oneshot_command(async move {
@@ -584,8 +486,64 @@ impl Component for AddBookDialog {
                 });
             }
 
-            AddBookDialogMsg::ClearSearchResults => self.clear_results(),
+            AddBookDialogMsg::ClearSearchResults => {
+                clear_results_ui(&mut self.results, widgets);
+            }
         }
+    }
+}
+
+fn clear_form(
+    results: &mut Vec<BookDraft>,
+    cover_bytes: &mut Vec<u8>,
+    widgets: &mut AddBookDialogWidgets,
+) {
+    widgets.title_entry.set_text("");
+    widgets.author_entry.set_text("");
+    widgets.cover_entry.set_text("");
+    widgets.read_by_nika_switch.set_active(false);
+    widgets.read_by_petya_switch.set_active(false);
+    widgets.description_view.buffer().set_text("");
+    widgets.search_entry.set_text("");
+    clear_results_ui(results, widgets);
+    show_cover_placeholder(cover_bytes, widgets, Some("Cover preview"));
+}
+
+fn clear_results_ui(results: &mut Vec<BookDraft>, widgets: &mut AddBookDialogWidgets) {
+    results.clear();
+    while let Some(child) = widgets.results_list.first_child() {
+        widgets.results_list.remove(&child);
+    }
+    widgets.results_scroll.set_visible(false);
+}
+
+fn show_cover_placeholder(
+    cover_bytes: &mut Vec<u8>,
+    widgets: &mut AddBookDialogWidgets,
+    message: Option<&str>,
+) {
+    widgets
+        .cover_preview
+        .set_paintable(gtk::gdk::Paintable::NONE);
+    widgets.cover_preview.set_visible(false);
+    widgets
+        .cover_placeholder_label
+        .set_label(message.unwrap_or("Cover preview"));
+    widgets.cover_placeholder.set_visible(true);
+    cover_bytes.clear();
+}
+
+fn set_cover_preview(
+    cover_bytes: &mut Vec<u8>,
+    widgets: &mut AddBookDialogWidgets,
+    resized_bytes: Vec<u8>,
+) {
+    let g_bytes = gtk::glib::Bytes::from(&resized_bytes[..]);
+    if let Ok(tex) = gtk::gdk::Texture::from_bytes(&g_bytes) {
+        widgets.cover_preview.set_paintable(Some(&tex));
+        widgets.cover_placeholder.set_visible(false);
+        widgets.cover_preview.set_visible(true);
+        *cover_bytes = resized_bytes;
     }
 }
 
