@@ -2,6 +2,7 @@ use relm4::prelude::*;
 
 mod app;
 mod components;
+mod errors;
 mod models;
 mod services;
 

@@ -5,30 +5,30 @@ use relm4::{adw, gtk};
 use crate::components::add_book_dialog::{AddBookDialog, AddBookDialogOutput};
 use crate::components::book_card::{BookCard, BookCardOutput};
 use crate::components::book_view::{BookViewModal, BookViewOutput};
+use crate::errors::AppError;
 use crate::models::{Book, BookDraft};
-use crate::services::covers;
 use crate::services::library::LibraryService;
 
 pub struct App {
-    all_books: Vec<Book>,
     library: LibraryService,
-    books: FactoryVecDeque<BookCard>,
+    displayed_books: FactoryVecDeque<BookCard>,
     query: String,
     add_book_modal: Controller<AddBookDialog>,
     book_view_modal: Option<Controller<BookViewModal>>,
 }
 
 impl App {
-    fn refresh_grid(&mut self) {
-        self.all_books = self.library.books().unwrap_or_default();
-        let mut guard = self.books.guard();
+    fn refresh_grid(&mut self) -> Result<(), AppError> {
+        let books = self.library.books()?;
+        let mut guard = self.displayed_books.guard();
         guard.clear();
-        for book in self.all_books.iter().filter(|b| {
+        for book in books.into_iter().filter(|b| {
             b.title.to_lowercase().contains(&self.query)
                 || b.author.to_lowercase().contains(&self.query)
         }) {
-            guard.push_back(book.clone());
+            guard.push_back(book);
         }
+        Ok(())
     }
 }
 
@@ -39,6 +39,7 @@ pub enum AppAction {
     SaveBook(BookDraft),
     OpenBook(Book),
     DeleteBook(i64),
+    ShowError(AppError),
 }
 
 #[relm4::component(pub)]
@@ -53,37 +54,40 @@ impl Component for App {
             set_title: Some("Nika's lib"),
             set_default_size: (960, 720),
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
+            #[name = "toast_overlay"]
+            adw::ToastOverlay {
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
 
-                adw::HeaderBar {
-                    pack_start = &gtk::Label {
-                        set_label: "📚 Nika's lib",
-                        add_css_class: "heading"
-                    },
+                    adw::HeaderBar {
+                        pack_start = &gtk::Label {
+                            set_label: "📚 Nika's lib",
+                            add_css_class: "heading"
+                        },
 
-                    #[wrap(Some)]
-                    set_title_widget = &gtk::SearchEntry {
-                        set_placeholder_text: Some("Search by title or author..."),
-                        connect_search_changed[sender] => move |entry| {
-                            sender.input(AppAction::Search(entry.text().to_string()));
+                        #[wrap(Some)]
+                        set_title_widget = &gtk::SearchEntry {
+                            set_placeholder_text: Some("Search by title or author..."),
+                            connect_search_changed[sender] => move |entry| {
+                                sender.input(AppAction::Search(entry.text().to_string()));
+                            },
+                        },
+
+                        pack_end = &gtk::Button {
+                            set_label: "+ Add Book",
+                            add_css_class: "suggested-action",
+                            connect_clicked => AppAction::OpenAddDialog,
                         },
                     },
 
-                    pack_end = &gtk::Button {
-                        set_label: "+ Add Book",
-                        add_css_class: "suggested-action",
-                        connect_clicked => AppAction::OpenAddDialog,
-                    },
-                },
+                    gtk::ScrolledWindow {
+                        set_vexpand: true,          // without this it collapses to zero height
 
-                gtk::ScrolledWindow {
-                    set_vexpand: true,          // without this it collapses to zero height
-
-                    #[local_ref]
-                    book_flow_box -> gtk::FlowBox {
-                        set_valign: gtk::Align::Start,
-                        // ...
+                        #[local_ref]
+                        book_flow_box -> gtk::FlowBox {
+                            set_valign: gtk::Align::Start,
+                            // ...
+                        }
                     }
                 }
             }
@@ -95,7 +99,6 @@ impl Component for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let all_books = library.books().expect("load books"); // .unwrap_or_default();
         let add_book_modal = AddBookDialog::builder()
             .transient_for(&root)
             .launch(())
@@ -105,8 +108,7 @@ impl Component for App {
 
         let mut model = App {
             library,
-            all_books,
-            books: FactoryVecDeque::builder().launch_default().forward(
+            displayed_books: FactoryVecDeque::builder().launch_default().forward(
                 sender.input_sender(),
                 |out| match out {
                     BookCardOutput::Open(book) => AppAction::OpenBook(book),
@@ -116,39 +118,42 @@ impl Component for App {
             add_book_modal,
             book_view_modal: None,
         };
-        model.refresh_grid();
-        let book_flow_box = model.books.widget();
+
+        if let Err(e) = model.refresh_grid() {
+            sender.input(AppAction::ShowError(e));
+        }
+
+        let book_flow_box = model.displayed_books.widget();
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        message: Self::Input,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
         match message {
             AppAction::OpenAddDialog => {
                 self.add_book_modal.widget().present();
             }
-            AppAction::SaveBook(draft) => {
-                let id = match self.library.add_book(&draft) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        eprintln!("failed to save book: {e}");
-                        return;
-                    }
-                };
-                self.refresh_grid();
-
-                if let Some(raw) = draft.cover_bytes {
-                    match covers::save_cover_bytes(id, &raw) {
-                        Ok(_) => {
-                            self.refresh_grid();
-                        }
-                        Err(e) => eprintln!("save cover failed: {e}"),
+            AppAction::SaveBook(draft) => match self.library.add_book(&draft) {
+                Ok(_) => {
+                    if let Err(e) = self.refresh_grid() {
+                        sender.input(AppAction::ShowError(e));
                     }
                 }
-            }
+                Err(e) => {
+                    sender.input(AppAction::ShowError(e.into()));
+                }
+            },
             AppAction::Search(q) => {
                 self.query = q.to_lowercase();
-                self.refresh_grid();
+                if let Err(e) = self.refresh_grid() {
+                    sender.input(AppAction::ShowError(e));
+                }
             }
             AppAction::OpenBook(book) => {
                 let modal = BookViewModal::builder()
@@ -160,10 +165,21 @@ impl Component for App {
                 modal.widget().present();
                 self.book_view_modal = Some(modal);
             }
-            AppAction::DeleteBook(id) => {
-                self.library.delete_book(id).unwrap();
-                self.book_view_modal = None;
-                self.refresh_grid();
+            AppAction::DeleteBook(id) => match self.library.delete_book(id) {
+                Ok(()) => {
+                    self.book_view_modal = None;
+                    if let Err(e) = self.refresh_grid() {
+                        sender.input(AppAction::ShowError(e));
+                    }
+                }
+                Err(e) => {
+                    sender.input(AppAction::ShowError(e.into()));
+                }
+            },
+            AppAction::ShowError(err) => {
+                let toast = adw::Toast::new(&err.to_string());
+                toast.set_timeout(5);
+                widgets.toast_overlay.add_toast(toast);
             }
         }
     }
