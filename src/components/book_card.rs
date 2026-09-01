@@ -29,19 +29,20 @@ impl FactoryComponent for BookCard {
 
     view! {
         root = gtk::Button {
-            add_css_class: "card",
+            add_css_class: "book-card",
+            set_size_request: (170, -1),
             connect_clicked => BookCardInput::Clicked,
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
                 set_spacing: 6,
-                add_css_class: "card",
 
                 gtk::Picture {
                     #[watch]
                     set_filename: covers::existing_cover(self.book.id),
                     set_content_fit: gtk::ContentFit::Contain,
                     set_height_request: 220,
+                    set_width_request: 150,
                 },
 
                 gtk::Label {
@@ -49,7 +50,7 @@ impl FactoryComponent for BookCard {
                     add_css_class: "heading",
                     set_xalign: 0.0,
                     set_wrap: true,
-                    set_max_width_chars: 20,
+                    set_max_width_chars: 18,
                     set_lines: 2,
                     set_ellipsize: gtk::pango::EllipsizeMode::End,
                 },
@@ -58,6 +59,10 @@ impl FactoryComponent for BookCard {
                     set_label: &self.book.author,
                     add_css_class: "dim-label",
                     set_xalign: 0.0,
+                    set_wrap: true,
+                    set_max_width_chars: 18,
+                    set_lines: 1,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
                 },
 
                 gtk::Box {

@@ -49,6 +49,7 @@ pub struct AddBookDialog {
     cover_bytes: Vec<u8>,
     cover_preview: gtk::Picture,
     cover_placeholder: gtk::Frame,
+    cover_placeholder_label: gtk::Label,
 
     provider: SearchProvider,
     search_entry: gtk::SearchEntry,
@@ -95,12 +96,14 @@ impl AddBookDialog {
             self.results_list.remove(&child);
         }
         self.results_scroll.set_visible(false);
-        self.show_cover_placeholder();
+        self.show_cover_placeholder(Some("Cover preview"));
     }
 
-    fn show_cover_placeholder(&mut self) {
+    fn show_cover_placeholder(&mut self, message: Option<&str>) {
         self.cover_preview.set_paintable(gtk::gdk::Paintable::NONE);
         self.cover_preview.set_visible(false);
+        self.cover_placeholder_label
+            .set_label(message.unwrap_or("Cover preview"));
         self.cover_placeholder.set_visible(true);
         self.cover_bytes.clear();
     }
@@ -236,12 +239,15 @@ impl Component for AddBookDialog {
                                 set_size_request: (140, 210),
                                 add_css_class: "cover-placeholder",
 
-                                #[wrap(Some)]
-                                set_child = &gtk::Label {
+                                #[local_ref]
+                                cover_placeholder_label -> gtk::Label {
                                     set_label: "Cover preview",
                                     add_css_class: "dim-label",
+                                    set_justify: gtk::Justification::Center,
                                     set_halign: gtk::Align::Center,
                                     set_valign: gtk::Align::Center,
+                                    set_wrap: true,
+                                    set_max_width_chars: 14,
                                 },
                             },
 
@@ -322,6 +328,8 @@ impl Component for AddBookDialog {
         let google_books_btn = gtk::ToggleButton::with_label("Google Books");
         google_books_btn.set_group(Some(&openlibrary_btn));
 
+        let cover_placeholder_label = gtk::Label::new(Some("Cover preview"));
+
         let model = AddBookDialog {
             window: root.clone(),
             title_entry: adw::EntryRow::default(),
@@ -333,6 +341,7 @@ impl Component for AddBookDialog {
             cover_bytes: Vec::new(),
             cover_preview: gtk::Picture::new(),
             cover_placeholder: gtk::Frame::new(None),
+            cover_placeholder_label,
             provider: SearchProvider::OpenLibrary,
             search_entry: gtk::SearchEntry::new(),
             search_button: gtk::Button::new(),
@@ -351,6 +360,7 @@ impl Component for AddBookDialog {
         let description_view = &model.description_view;
         let cover_preview = &model.cover_preview;
         let cover_placeholder = &model.cover_placeholder;
+        let cover_placeholder_label = &model.cover_placeholder_label;
         let search_entry = &model.search_entry;
         let search_button = &model.search_button;
         let openlibrary_btn = &model.openlibrary_btn;
@@ -390,6 +400,22 @@ impl Component for AddBookDialog {
                         .title(&draft.title)
                         .subtitle(&draft.author)
                         .build();
+
+                    if draft.cover_url.is_empty() {
+                        let badge = gtk::Label::builder()
+                            .label("No cover")
+                            .css_classes(["dim-label"])
+                            .build();
+                        row.add_suffix(&badge);
+                    } else {
+                        let badge = gtk::Label::builder()
+                            .label("📷")
+                            .tooltip_text("Cover available")
+                            .css_classes(["dim-label"])
+                            .build();
+                        row.add_suffix(&badge);
+                    }
+
                     row.set_activatable(true);
                     self.results_list.append(&row);
                 }
@@ -481,14 +507,14 @@ impl Component for AddBookDialog {
 
                 self.results_scroll.set_visible(false);
 
-                // Explicitly trigger cover fetch and preview for selected book
+                // Trigger cover fetch or display "No cover available"
                 sender.input(AddBookDialogMsg::CoverUrlChanged(d.cover_url.clone()));
             }
 
             AddBookDialogMsg::CoverUrlChanged(url) => {
                 let url = url.trim().to_string();
                 if url.is_empty() {
-                    self.show_cover_placeholder();
+                    self.show_cover_placeholder(Some("No cover image\navailable"));
                     return;
                 }
                 sender
