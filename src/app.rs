@@ -137,7 +137,7 @@ impl Component for App {
                     adw::HeaderBar {
                         #[wrap(Some)]
                         set_title_widget = &gtk::Box {
-                            set_visible: true,
+                            set_visible: false,
                         },
 
                         pack_start = &gtk::Label {
@@ -334,7 +334,6 @@ impl Component for App {
             .launch(())
             .forward(sender.input_sender(), |out| match out {
                 AddBookDialogOutput::Save(draft) => AppAction::SaveBook(draft),
-                AddBookDialogOutput::Error(err) => AppAction::ShowError(AppError::Search(err)),
             });
 
         let mut model = App {

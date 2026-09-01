@@ -4,6 +4,7 @@ use relm4::{adw, gtk};
 
 use crate::models::BookDraft;
 use crate::services::google_books::search_google_books;
+use crate::services::isbndb::search_isbndb;
 use crate::services::openlibrary::search_openlibrary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -11,6 +12,7 @@ pub enum SearchProvider {
     #[default]
     OpenLibrary,
     GoogleBooks,
+    IsbnDb,
 }
 
 #[derive(Debug)]
@@ -27,7 +29,6 @@ pub enum AddBookDialogMsg {
 #[derive(Debug)]
 pub enum AddBookDialogOutput {
     Save(BookDraft),
-    Error(String),
 }
 
 #[derive(Debug)]
@@ -38,6 +39,7 @@ pub enum DialogCmd {
 
 pub struct AddBookDialog {
     window: adw::Window,
+    toast_overlay: adw::ToastOverlay,
 
     title_entry: adw::EntryRow,
     author_entry: adw::EntryRow,
@@ -56,6 +58,7 @@ pub struct AddBookDialog {
     search_button: gtk::Button,
     openlibrary_btn: gtk::ToggleButton,
     google_books_btn: gtk::ToggleButton,
+    isbndb_btn: gtk::ToggleButton,
     results_list: gtk::ListBox,
     results_scroll: gtk::ScrolledWindow,
     results: Vec<BookDraft>,
@@ -117,210 +120,223 @@ impl Component for AddBookDialog {
     type CommandOutput = DialogCmd;
 
     view! {
-        adw::Window {
-            set_title: Some("Add New Book"),
-            set_modal: true,
-            set_hide_on_close: true,
-            set_default_size: (820, 680),
+            adw::Window {
+                set_title: Some("Add New Book"),
+                set_modal: true,
+                set_hide_on_close: true,
+                set_default_size: (820, 680),
 
-            connect_close_request[sender] => move |_| {
-                sender.input(AddBookDialogMsg::Cancel);
-                gtk::glib::Propagation::Proceed
-            },
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-
-                adw::HeaderBar {
-                    set_show_start_title_buttons: false,
-                    set_show_end_title_buttons: false,
-
-                    pack_start = &gtk::Button {
-                        set_label: "Cancel",
-                        connect_clicked => AddBookDialogMsg::Cancel,
-                    },
-
-                    pack_end = &gtk::Button {
-                        set_label: "Save Book",
-                        add_css_class: "suggested-action",
-                        connect_clicked => AddBookDialogMsg::Save,
-                    },
+                connect_close_request[sender] => move |_| {
+                    sender.input(AddBookDialogMsg::Cancel);
+                    gtk::glib::Propagation::Proceed
                 },
 
-                gtk::ScrolledWindow {
-                    set_vexpand: true,
-
+                #[local_ref]
+                toast_overlay -> adw::ToastOverlay {
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 16,
-                        set_margin_all: 16,
 
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_spacing: 8,
+                        adw::HeaderBar {
+                            set_show_start_title_buttons: false,
+                            set_show_end_title_buttons: false,
+
+                            pack_start = &gtk::Button {
+                                set_label: "Cancel",
+                                connect_clicked => AddBookDialogMsg::Cancel,
+                            },
+
+                            pack_end = &gtk::Button {
+                                set_label: "Save Book",
+                                add_css_class: "suggested-action",
+                                connect_clicked => AddBookDialogMsg::Save,
+                            },
+                        },
+
+                        gtk::ScrolledWindow {
+                            set_vexpand: true,
 
                             gtk::Box {
-                                set_spacing: 8,
-                                set_valign: gtk::Align::Center,
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 16,
+                                set_margin_all: 16,
 
-                                gtk::Label {
-                                    set_label: "Search book on",
-                                    add_css_class: "heading",
-                                    set_xalign: 0.0,
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 8,
+
+                                    gtk::Box {
+                                        set_spacing: 8,
+                                        set_valign: gtk::Align::Center,
+
+                                        gtk::Label {
+                                            set_label: "Search book on",
+                                            add_css_class: "heading",
+                                            set_xalign: 0.0,
+                                        },
+
+                                        gtk::Box {
+                                            set_halign: gtk::Align::Start,
+                                            add_css_class: "linked",
+
+                                            #[local_ref]
+                                            openlibrary_btn -> gtk::ToggleButton {
+                                                set_label: "OpenLibrary",
+                                                set_active: true,
+                                                connect_toggled[sender] => move |btn| {
+                                                    if btn.is_active() {
+                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
+                                                    }
+                                                },
+                                            },
+
+                                            #[local_ref]
+                                            google_books_btn -> gtk::ToggleButton {
+                                                set_label: "Google Books",
+                                                connect_toggled[sender] => move |btn| {
+                                                    if btn.is_active() {
+                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
+                                                    }
+                                                },
+                                            },
+
+                                            #[local_ref]
+                                            isbndb_btn -> gtk::ToggleButton {
+                                                set_label: "ISBNdb (ISBN)",
+                                                connect_toggled[sender] => move |btn| {
+                                                    if btn.is_active() {
+                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::IsbnDb));
+                                                    }
+                                                },
+                                            },
+                                        },
+                                    },
+
+                                    gtk::Box {
+                                        set_spacing: 6,
+
+                                        #[local_ref]
+                                        search_entry -> gtk::SearchEntry {
+                                            set_hexpand: true,
+                                            set_placeholder_text: Some("Title, author, or ISBN..."),
+                                            connect_activate => AddBookDialogMsg::Search,
+                                            connect_search_changed => AddBookDialogMsg::ClearSearchResults,
+                                        },
+
+                                        #[local_ref]
+                                        search_button -> gtk::Button {
+                                            set_label: "Search",
+                                            connect_clicked => AddBookDialogMsg::Search,
+                                        },
+                                    },
+                                },
+
+                                #[local_ref]
+                                results_scroll -> gtk::ScrolledWindow {
+                                    set_min_content_height: 120,
+                                    set_visible: false,
+
+                                    #[local_ref]
+                                    results_list -> gtk::ListBox {
+                                        add_css_class: "boxed-list",
+                                        connect_row_activated[sender] => move |_, row| {
+                                            sender.input(AddBookDialogMsg::SelectResult(row.index() as usize));
+                                        },
+                                    },
                                 },
 
                                 gtk::Box {
-                                    set_halign: gtk::Align::Start,
-                                    add_css_class: "linked",
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 16,
+
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_valign: gtk::Align::Start,
 
                                     #[local_ref]
-                                    openlibrary_btn -> gtk::ToggleButton {
-                                        set_label: "OpenLibrary",
-                                        set_active: true,
-                                        connect_toggled[sender] => move |btn| {
-                                            if btn.is_active() {
-                                                sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
-                                            }
+                                    cover_placeholder -> gtk::Frame {
+                                        set_size_request: (320, 460),
+                                        add_css_class: "cover-placeholder",
+
+                                        #[local_ref]
+                                        cover_placeholder_label -> gtk::Label {
+                                            set_label: "Cover preview",
+                                            add_css_class: "dim-label",
+                                            set_justify: gtk::Justification::Center,
+                                            set_halign: gtk::Align::Center,
+                                            set_valign: gtk::Align::Center,
+                                            set_wrap: true,
+                                            set_max_width_chars: 20,
                                         },
                                     },
 
                                     #[local_ref]
-                                    google_books_btn -> gtk::ToggleButton {
-                                        set_label: "Google Books",
-                                        connect_toggled[sender] => move |btn| {
-                                            if btn.is_active() {
-                                                sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
-                                            }
-                                        },
+                                    cover_preview -> gtk::Picture {
+                                        set_visible: false,
+                                        set_content_fit: gtk::ContentFit::Contain,
+                                        set_size_request: (320, 460),
+                                        add_css_class: "card",
                                     },
                                 },
-                            },
 
-                            gtk::Box {
-                                set_spacing: 6,
-
-                                #[local_ref]
-                                search_entry -> gtk::SearchEntry {
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 12,
                                     set_hexpand: true,
-                                    set_placeholder_text: Some("Title or author..."),
-                                    connect_activate => AddBookDialogMsg::Search,
-                                    connect_search_changed => AddBookDialogMsg::ClearSearchResults,
-                                },
 
-                                #[local_ref]
-                                search_button -> gtk::Button {
-                                    set_label: "Search",
-                                    connect_clicked => AddBookDialogMsg::Search,
-                                },
-                            },
-                        },
+                                    adw::PreferencesGroup {
+                                        set_title: "Book details",
 
-                        #[local_ref]
-                        results_scroll -> gtk::ScrolledWindow {
-                            set_min_content_height: 120,
-                            set_visible: false,
-
-                            #[local_ref]
-                            results_list -> gtk::ListBox {
-                                add_css_class: "boxed-list",
-                                connect_row_activated[sender] => move |_, row| {
-                                    sender.input(AddBookDialogMsg::SelectResult(row.index() as usize));
-                                },
-                            },
-                        },
-
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Horizontal,
-                            set_spacing: 16,
-
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_valign: gtk::Align::Start,
-
-                                #[local_ref]
-                                cover_placeholder -> gtk::Frame {
-                                    set_size_request: (320, 460),
-                                    add_css_class: "cover-placeholder",
-
-                                    #[local_ref]
-                                    cover_placeholder_label -> gtk::Label {
-                                        set_label: "Cover preview",
-                                        add_css_class: "dim-label",
-                                        set_justify: gtk::Justification::Center,
-                                        set_halign: gtk::Align::Center,
-                                        set_valign: gtk::Align::Center,
-                                        set_wrap: true,
-                                        set_max_width_chars: 20,
+                                        #[local_ref]
+                                        title_entry -> adw::EntryRow { set_title: "Title" },
+                                        #[local_ref]
+                                        author_entry -> adw::EntryRow { set_title: "Author" },
+                                        #[local_ref]
+                                        cover_entry -> adw::EntryRow {
+                                            set_title: "Cover image URL (optional)",
+                                            connect_changed[sender] => move |entry| {
+                                                sender.input(AddBookDialogMsg::CoverUrlChanged(entry.text().to_string()));
+                                            },
+                                        },
                                     },
-                                },
 
-                                #[local_ref]
-                                cover_preview -> gtk::Picture {
-                                    set_visible: false,
-                                    set_content_fit: gtk::ContentFit::Contain,
-                                    set_size_request: (320, 460),
-                                    add_css_class: "card",
-                                },
-                            },
+                                    adw::PreferencesGroup {
+                                        set_title: "Reading status",
 
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_spacing: 12,
-                                set_hexpand: true,
+                                        #[local_ref]
+                                        read_by_nika_switch -> adw::SwitchRow {
+                                            set_title: "Read by Nika",
+                                        },
+                                        #[local_ref]
+                                        read_by_petya_switch -> adw::SwitchRow {
+                                            set_title: "Read by Petya",
+                                        },
+                                    },
 
-                                adw::PreferencesGroup {
-                                    set_title: "Book details",
+                                    gtk::Label {
+                                        set_label: "Description",
+                                        set_xalign: 0.0,
+                                        add_css_class: "heading",
+                                    },
 
-                                    #[local_ref]
-                                    title_entry -> adw::EntryRow { set_title: "Title" },
-                                    #[local_ref]
-                                    author_entry -> adw::EntryRow { set_title: "Author" },
-                                    #[local_ref]
-                                    cover_entry -> adw::EntryRow {
-                                        set_title: "Cover image URL (optional)",
-                                        connect_changed[sender] => move |entry| {
-                                            sender.input(AddBookDialogMsg::CoverUrlChanged(entry.text().to_string()));
+                                    gtk::ScrolledWindow {
+                                        set_min_content_height: 180,
+                                        set_vexpand: true,
+                                        add_css_class: "card",
+
+                                        #[local_ref]
+                                        description_view -> gtk::TextView {
+                                            set_wrap_mode: gtk::WrapMode::WordChar,
+                                            set_top_margin: 8,
+                                            set_bottom_margin: 8,
+                                            set_left_margin: 8,
+                                            set_right_margin: 8,
                                         },
                                     },
                                 },
-
-                                adw::PreferencesGroup {
-                                    set_title: "Reading status",
-
-                                    #[local_ref]
-                                    read_by_nika_switch -> adw::SwitchRow {
-                                        set_title: "Read by Nika",
-                                    },
-                                    #[local_ref]
-                                    read_by_petya_switch -> adw::SwitchRow {
-                                        set_title: "Read by Petya",
-                                    },
-                                },
-
-                                gtk::Label {
-                                    set_label: "Description",
-                                    set_xalign: 0.0,
-                                    add_css_class: "heading",
-                                },
-
-                                gtk::ScrolledWindow {
-                                    set_min_content_height: 180,
-                                    set_vexpand: true,
-                                    add_css_class: "card",
-
-                                    #[local_ref]
-                                    description_view -> gtk::TextView {
-                                        set_wrap_mode: gtk::WrapMode::WordChar,
-                                        set_top_margin: 8,
-                                        set_bottom_margin: 8,
-                                        set_left_margin: 8,
-                                        set_right_margin: 8,
-                                    },
-                                },
                             },
                         },
-                    },
-                },
+                    }
+                }
             }
         }
     }
@@ -332,12 +348,16 @@ impl Component for AddBookDialog {
     ) -> ComponentParts<Self> {
         let openlibrary_btn = gtk::ToggleButton::with_label("OpenLibrary");
         let google_books_btn = gtk::ToggleButton::with_label("Google Books");
+        let isbndb_btn = gtk::ToggleButton::with_label("ISBNdb (ISBN)");
         google_books_btn.set_group(Some(&openlibrary_btn));
+        isbndb_btn.set_group(Some(&openlibrary_btn));
 
         let cover_placeholder_label = gtk::Label::new(Some("Cover preview"));
+        let toast_overlay = adw::ToastOverlay::new();
 
         let model = AddBookDialog {
             window: root.clone(),
+            toast_overlay,
             title_entry: adw::EntryRow::default(),
             author_entry: adw::EntryRow::default(),
             cover_entry: adw::EntryRow::default(),
@@ -353,11 +373,13 @@ impl Component for AddBookDialog {
             search_button: gtk::Button::new(),
             openlibrary_btn,
             google_books_btn,
+            isbndb_btn,
             results_list: gtk::ListBox::new(),
             results_scroll: gtk::ScrolledWindow::new(),
             results: Vec::new(),
         };
 
+        let toast_overlay = &model.toast_overlay;
         let title_entry = &model.title_entry;
         let author_entry = &model.author_entry;
         let cover_entry = &model.cover_entry;
@@ -371,6 +393,7 @@ impl Component for AddBookDialog {
         let search_button = &model.search_button;
         let openlibrary_btn = &model.openlibrary_btn;
         let google_books_btn = &model.google_books_btn;
+        let isbndb_btn = &model.isbndb_btn;
         let results_list = &model.results_list;
         let results_scroll = &model.results_scroll;
 
@@ -382,7 +405,7 @@ impl Component for AddBookDialog {
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        sender: ComponentSender<Self>,
+        _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         match message {
@@ -393,7 +416,9 @@ impl Component for AddBookDialog {
                 let results = match msg {
                     Ok(results) => results,
                     Err(e) => {
-                        let _ = sender.output(AddBookDialogOutput::Error(e));
+                        let toast = adw::Toast::new(&e);
+                        toast.set_timeout(5);
+                        self.toast_overlay.add_toast(toast);
                         return;
                     }
                 };
@@ -496,6 +521,9 @@ impl Component for AddBookDialog {
                         SearchProvider::GoogleBooks => {
                             search_google_books(&q).await.map_err(|e| e.to_string())
                         }
+                        SearchProvider::IsbnDb => {
+                            search_isbndb(&q).await.map_err(|e| e.to_string())
+                        }
                     };
                     DialogCmd::SearchResult(res)
                 });
@@ -544,7 +572,7 @@ fn clean_text(input: &gtk::TextView) -> String {
 
 async fn fetch_bytes(url: &str) -> Result<Vec<u8>, reqwest::Error> {
     let client = reqwest::Client::builder()
-        .user_agent("nlib/0.1.0")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()?;
     Ok(client.get(url).send().await?.bytes().await?.to_vec())
 }
