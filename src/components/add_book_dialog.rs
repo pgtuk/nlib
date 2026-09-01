@@ -184,15 +184,29 @@ impl Component for AddBookDialog {
                                         set_size_request: (320, 460),
                                         add_css_class: "cover-placeholder",
 
-                                        #[name = "cover_placeholder_label"]
-                                        gtk::Label {
-                                            set_label: "Cover preview",
-                                            add_css_class: "dim-label",
-                                            set_justify: gtk::Justification::Center,
-                                            set_halign: gtk::Align::Center,
+                                        gtk::Box {
+                                            set_orientation: gtk::Orientation::Vertical,
                                             set_valign: gtk::Align::Center,
-                                            set_wrap: true,
-                                            set_max_width_chars: 20,
+                                            set_halign: gtk::Align::Center,
+                                            set_spacing: 12,
+
+                                            #[name = "cover_spinner"]
+                                            gtk::Spinner {
+                                                set_spinning: false,
+                                                set_visible: false,
+                                                set_size_request: (32, 32),
+                                            },
+
+                                            #[name = "cover_placeholder_label"]
+                                            gtk::Label {
+                                                set_label: "Cover preview",
+                                                add_css_class: "dim-label",
+                                                set_justify: gtk::Justification::Center,
+                                                set_halign: gtk::Align::Center,
+                                                set_valign: gtk::Align::Center,
+                                                set_wrap: true,
+                                                set_max_width_chars: 20,
+                                            },
                                         },
                                     },
 
@@ -336,6 +350,11 @@ impl Component for AddBookDialog {
             DialogCmd::Error(e) => {
                 widgets.search_button.set_sensitive(true);
                 widgets.search_button.set_label("Search");
+                show_cover_placeholder(
+                    &mut self.cover_bytes,
+                    widgets,
+                    Some("Failed to load\ncover"),
+                );
                 let toast = adw::Toast::new(&e);
                 toast.set_timeout(5);
                 widgets.toast_overlay.add_toast(toast);
@@ -368,6 +387,7 @@ impl Component for AddBookDialog {
             }
 
             AddBookDialogMsg::LocalImageLoaded(raw) => {
+                show_cover_loading(widgets, "Processing image…");
                 sender.oneshot_command(async move {
                     let resized = process_image_bytes(raw).await;
                     DialogCmd::CoverLoaded(resized)
@@ -460,6 +480,7 @@ impl Component for AddBookDialog {
                     );
                     return;
                 }
+                show_cover_loading(widgets, "Downloading cover…");
                 sender.oneshot_command(async move {
                     match fetch_and_resize(&url).await {
                         Ok(resized) => DialogCmd::CoverLoaded(resized),
@@ -499,6 +520,17 @@ fn clear_results_ui(results: &mut Vec<BookDraft>, widgets: &mut AddBookDialogWid
     widgets.results_scroll.set_visible(false);
 }
 
+fn show_cover_loading(widgets: &mut AddBookDialogWidgets, message: &str) {
+    widgets
+        .cover_preview
+        .set_paintable(gtk::gdk::Paintable::NONE);
+    widgets.cover_preview.set_visible(false);
+    widgets.cover_placeholder_label.set_label(message);
+    widgets.cover_spinner.set_visible(true);
+    widgets.cover_spinner.set_spinning(true);
+    widgets.cover_placeholder.set_visible(true);
+}
+
 fn show_cover_placeholder(
     cover_bytes: &mut Vec<u8>,
     widgets: &mut AddBookDialogWidgets,
@@ -508,6 +540,8 @@ fn show_cover_placeholder(
         .cover_preview
         .set_paintable(gtk::gdk::Paintable::NONE);
     widgets.cover_preview.set_visible(false);
+    widgets.cover_spinner.set_spinning(false);
+    widgets.cover_spinner.set_visible(false);
     widgets
         .cover_placeholder_label
         .set_label(message.unwrap_or("Cover preview"));
@@ -521,6 +555,8 @@ fn set_cover_preview(
     resized_bytes: Vec<u8>,
 ) {
     if let Some(tex) = texture_from_bytes(&resized_bytes) {
+        widgets.cover_spinner.set_spinning(false);
+        widgets.cover_spinner.set_visible(false);
         widgets.cover_preview.set_paintable(Some(&tex));
         widgets.cover_placeholder.set_visible(false);
         widgets.cover_preview.set_visible(true);
