@@ -3,22 +3,24 @@ use relm4::prelude::*;
 use relm4::{adw, gtk};
 
 use crate::components::add_book_dialog::{AddBookDialog, AddBookDialogOutput};
-use crate::components::book_card::BookCard;
+use crate::components::book_card::{BookCard, BookCardOutput};
+use crate::components::book_view::{BookViewModal, BookViewOutput};
 use crate::models::{Book, BookDraft};
 use crate::services::covers;
-use crate::services::storage::Db;
+use crate::services::library::LibraryService;
 
 pub struct App {
     all_books: Vec<Book>,
+    library: LibraryService,
     books: FactoryVecDeque<BookCard>,
     query: String,
-    db: Db,
-    dialog: Controller<AddBookDialog>,
+    add_book_modal: Controller<AddBookDialog>,
+    book_view_modal: Option<Controller<BookViewModal>>,
 }
 
 impl App {
     fn refresh_grid(&mut self) {
-        self.all_books = self.db.books().unwrap_or_default();
+        self.all_books = self.library.books().unwrap_or_default();
         let mut guard = self.books.guard();
         guard.clear();
         for book in self.all_books.iter().filter(|b| {
@@ -31,16 +33,18 @@ impl App {
 }
 
 #[derive(Debug)]
-pub enum AppMsg {
+pub enum AppAction {
     Search(String),
     OpenAddDialog,
     SaveBook(BookDraft),
+    OpenBook(Book),
+    DeleteBook(i64),
 }
 
 #[relm4::component(pub)]
 impl Component for App {
-    type Init = Db;
-    type Input = AppMsg;
+    type Init = LibraryService;
+    type Input = AppAction;
     type Output = ();
     type CommandOutput = ();
 
@@ -59,18 +63,18 @@ impl Component for App {
                     },
 
                     #[wrap(Some)]
-                        set_title_widget = &gtk::SearchEntry {
-                            set_placeholder_text: Some("Search by title or author..."),
-                            connect_search_changed[sender] => move |entry| {
-                                sender.input(AppMsg::Search(entry.text().to_string()));
-                            },
+                    set_title_widget = &gtk::SearchEntry {
+                        set_placeholder_text: Some("Search by title or author..."),
+                        connect_search_changed[sender] => move |entry| {
+                            sender.input(AppAction::Search(entry.text().to_string()));
                         },
+                    },
 
-                        pack_end = &gtk::Button {
-                            set_label: "+ Add Book",
-                            add_css_class: "suggested-action",
-                            connect_clicked => AppMsg::OpenAddDialog,
-                        },
+                    pack_end = &gtk::Button {
+                        set_label: "+ Add Book",
+                        add_css_class: "suggested-action",
+                        connect_clicked => AppAction::OpenAddDialog,
+                    },
                 },
 
                 gtk::ScrolledWindow {
@@ -87,23 +91,30 @@ impl Component for App {
     }
 
     fn init(
-        db: Self::Init,
+        library: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let all_books = db.books().expect("load books"); // .unwrap_or_default();
-        let dialog = AddBookDialog::builder()
+        let all_books = library.books().expect("load books"); // .unwrap_or_default();
+        let add_book_modal = AddBookDialog::builder()
             .transient_for(&root)
             .launch(())
             .forward(sender.input_sender(), |out| match out {
-                AddBookDialogOutput::Save(draft) => AppMsg::SaveBook(draft),
+                AddBookDialogOutput::Save(draft) => AppAction::SaveBook(draft),
             });
+
         let mut model = App {
-            db,
+            library,
             all_books,
-            books: FactoryVecDeque::builder().launch_default().detach(),
+            books: FactoryVecDeque::builder().launch_default().forward(
+                sender.input_sender(),
+                |out| match out {
+                    BookCardOutput::Open(book) => AppAction::OpenBook(book),
+                },
+            ),
             query: String::new(),
-            dialog,
+            add_book_modal,
+            book_view_modal: None,
         };
         model.refresh_grid();
         let book_flow_box = model.books.widget();
@@ -111,13 +122,13 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match message {
-            AppMsg::OpenAddDialog => {
-                self.dialog.widget().present();
+            AppAction::OpenAddDialog => {
+                self.add_book_modal.widget().present();
             }
-            AppMsg::SaveBook(draft) => {
-                let id = match self.db.add_book(&draft) {
+            AppAction::SaveBook(draft) => {
+                let id = match self.library.add_book(&draft) {
                     Ok(id) => id,
                     Err(e) => {
                         eprintln!("failed to save book: {e}");
@@ -126,15 +137,32 @@ impl Component for App {
                 };
                 self.refresh_grid();
 
-                if let Some(raw) = draft.cover_bytes { match covers::save_cover_bytes(id, &raw) {
-                    Ok(_) => {
-                        self.refresh_grid();
+                if let Some(raw) = draft.cover_bytes {
+                    match covers::save_cover_bytes(id, &raw) {
+                        Ok(_) => {
+                            self.refresh_grid();
+                        }
+                        Err(e) => eprintln!("save cover failed: {e}"),
                     }
-                    Err(e) => eprintln!("save cover failed: {e}"),
-                } }
+                }
             }
-            AppMsg::Search(q) => {
+            AppAction::Search(q) => {
                 self.query = q.to_lowercase();
+                self.refresh_grid();
+            }
+            AppAction::OpenBook(book) => {
+                let modal = BookViewModal::builder()
+                    .transient_for(root)
+                    .launch(book)
+                    .forward(sender.input_sender(), |out| match out {
+                        BookViewOutput::Delete(id) => AppAction::DeleteBook(id),
+                    });
+                modal.widget().present();
+                self.book_view_modal = Some(modal);
+            }
+            AppAction::DeleteBook(id) => {
+                self.library.delete_book(id).unwrap();
+                self.book_view_modal = None;
                 self.refresh_grid();
             }
         }

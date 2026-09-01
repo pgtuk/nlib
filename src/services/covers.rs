@@ -44,3 +44,9 @@ pub async fn download_cover(url: &str, id: i64) -> Result<PathBuf, CoverError> {
     let bytes = reqwest::get(url).await?.bytes().await?;
     save_cover_bytes(id, &bytes)
 }
+
+pub fn delete_cover(id: i64) {
+    if let Some(path) = existing_cover(id) {
+        let _ = std::fs::remove_file(path);
+    }
+}

@@ -87,6 +87,12 @@ impl Db {
 
         Ok(conn.last_insert_rowid())
     }
+
+    pub fn delete_book(&self, id: i64) -> Result<()> {
+        self.conn()
+            .execute("DELETE FROM books WHERE id = ?1", params![id])?;
+        Ok(())
+    }
 }
 
 fn get_db_path() -> Result<PathBuf> {

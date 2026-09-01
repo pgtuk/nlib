@@ -1,5 +1,4 @@
-pub mod openlibrary;
-
-pub mod storage;
-
 pub mod covers;
+pub mod library;
+pub mod openlibrary;
+pub mod storage;

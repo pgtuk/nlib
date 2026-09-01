@@ -106,9 +106,22 @@ Macros annotate the **`impl`**, never the struct: `#[relm4::component(pub)]`,
 `#[relm4::factory(pub)]`. Use `(pub)` for cross-module components — it also makes the
 generated `XWidgets` struct public, which a private impl would choke on.
 
+**The pairing is strict** — `#[relm4::component]` goes with `impl Component`,
+`#[relm4::factory]` with `impl FactoryComponent`. Mixing them buries you in errors that
+never mention the macro: the headline is "the trait bound `X: FactoryComponent` is not
+satisfied" plus a cascade of E0053/E0185/E0407 on methods whose signatures belong to the
+other trait. If a component impl explodes into a dozen unrelated-looking errors, check
+the attribute first.
+
 A `view!` block is **required** inside the impl — it's the macro's input. Without it
 you get "missing `Root` / `init_root` / `init_widgets`" errors, because those are
-generated *from* the view. Factory views need an explicit `root = gtk::Box { .. }`.
+generated *from* the view. Only **factory** views take the `root = gtk::Box { .. }`
+prefix; in a plain `Component` the top-level widget *is* the root and is declared bare
+(`adw::Window { … }`).
+
+Modal `Component`s that the parent keeps a long-lived `Controller` for **must set
+`set_hide_on_close: true`** on their window. Otherwise the X button destroys the widget
+and the next `present()` targets a corpse. `AddBookDialog` and `BookView` both rely on this.
 
 Associated types you write: `Init`, `Input`, `Output`, `CommandOutput`, and (factory)
 `ParentWidget`. `Root`, `Widgets`, `Index` are macro-generated — don't declare them.
@@ -167,6 +180,12 @@ the returned `Controller` on the parent model — dropping it destroys the child
   `oneshot_command`'s `Future + Send` bound. The compiler catches it, but the error is a
   wall of trait bounds. Keep the split: IO in the async block, DB writes in the sync
   `update`/`update_cmd`.
+- **`models.rs` may depend on `services` — that's deliberate.** `Book` carries persistence
+  helpers like `Book::delete(&Db)` that bundle the DB row and the cover file so a caller
+  can't do half the job. Since `storage.rs` already imports `Book`, the two modules are
+  mutually dependent. That's legal inside a crate and intentional here; don't "fix" it by
+  moving `Book` into `storage.rs` or adding a service layer. `Book` cannot *hold* a `Db`
+  though — it derives `PartialEq` and `Db` doesn't, so these stay `&Db` parameters.
 - **No schema migrations.** On any schema change, delete `~/.local/share/nlib/nlib.sqlite`
   and let `open()` recreate it. Agreed tradeoff for a PoC; test rows are disposable.
 - **Search filters in-memory**, not SQL, on purpose: SQLite `LIKE`/`lower()` only
@@ -194,25 +213,54 @@ the returned `Controller` on the parent model — dropping it destroys the child
 
 ## Roadmap: book management (agreed 2026-09-01)
 
-Goal: books are currently write-once — you can add and search, nothing else. Add
-delete, a detail view that doubles as the editor, and read-tracking for the two users.
+Goal: books are currently write-once — you can add and search, nothing else. Add a
+detail view that doubles as the editor, delete, and read-tracking for the two users.
 
 **Do these in order.** Each step lays plumbing the next one needs; going out of order
-means building the same form or the same message path twice.
+means building the same form or the same message path twice. The deliberate shape is
+*thin modal first, contents second*: step 1 stands `BookView` up with a single action so
+the card → `App` → modal → `App` round trip is proven before any form rows exist.
 
-### 1. Delete a book
+### 1. `BookView` skeleton — delete only
 
-Smallest, and it's the foundation: it introduces factory child → parent messaging,
-which steps 3 and 4 both reuse.
+Stand the modal up first, but scoped to **one** action: delete, behind a confirmation.
+Fields come in step 3. This gets the whole message path — card → `App` → modal → `App`
+— working while there's almost nothing in the modal to get wrong.
 
-- `BookCard` gets a real `Output` (currently `()`), e.g. `BookCardOutput::Delete(i64)`.
-- `App` swaps `.detach()` for `.forward(sender.input_sender(), …)` —
-  `FactoryVecDequeConnector::forward` is at `relm4-0.11.0/src/factory/sync/collections/vec_deque.rs:461`.
-  Dropping the returned handle destroys the children, so it stays on the model.
-- New `Db::delete_book(id)`, then delete `covers/{id}.jpg`, then `refresh_grid()`.
-- Orphaned cover files aren't a correctness bug (`AUTOINCREMENT` never reuses ids) but
-  the cache would grow forever, so clean the file up.
-- Expect to meet `DynamicIndex` here — it's what keeps indices valid after a removal.
+**Opening it.** `BookCard` needs a real `Output` (currently `()`), e.g.
+`BookCardOutput::Open(i64)`, and `App` swaps `.detach()` for
+`.forward(sender.input_sender(), …)` — `FactoryVecDequeConnector::forward` is at
+`relm4-0.11.0/src/factory/sync/collections/vec_deque.rs:461`. Keep the returned handle
+on the model; dropping it destroys the children.
+
+- To make the tile clickable, the simplest route is a `gtk::Button` as the factory
+  `root` with the existing `gtk::Box` inside (Button is single-child, so that's legal)
+  and `add_css_class: "card"` moved onto it. That buys hover, focus and keyboard
+  activation for free versus hand-wiring a `gtk::GestureClick`.
+- `App` holds a `Controller<BookView>` alongside the existing dialog one. Unlike
+  `AddBookDialog` — created once and just re-`present()`ed — `BookView` needs to know
+  *which* book. Build it once in `init` and send it the book (`self.book_view.emit(…)`)
+  before presenting; don't recreate the controller per click.
+
+**Confirming the delete.** Use `adw::AlertDialog` (present in adw 0.9.2; the older
+`adw::MessageDialog` is deprecated). Verified API:
+
+- `add_response("cancel", "Cancel")` / `add_response("delete", "Delete")`
+- `set_response_appearance("delete", adw::ResponseAppearance::Destructive)`
+- `set_close_response("cancel")`, `set_heading`, `set_body`
+- `connect_response(Some("delete"), move |_, _| …)` — closure is `Fn(&Self, &str)`
+- it extends `adw::Dialog`, so **`present()` takes a parent**:
+  `present(Option<&impl IsA<gtk::Widget>>)`, unlike `gtk::Window::present()` which takes
+  no arguments. Easy arity error.
+
+`BookView` owns the confirmation and only outputs `Delete(id)` once the user confirms,
+so `App` never has to know a confirmation happened.
+
+**Doing the delete.** New `Db::delete_book(id)`, then remove `covers/{id}.jpg`, then
+close the modal and `refresh_grid()`. Orphaned cover files aren't a correctness bug
+(`AUTOINCREMENT` never reuses ids) but the cache would grow forever, so clean the file up.
+
+Expect to meet `DynamicIndex` here — it's what keeps factory indices valid after a removal.
 
 ### 2. Read-tracking fields
 
@@ -243,11 +291,10 @@ read_by_petya TEXT
   backdating is a later extension if it turns out to be wanted, and the schema already
   allows it without a migration (any ISO date is valid in the column).
 
-### 3. `BookView` — detail modal
+### 3. Populate `BookView` with fields
 
-A new `Component` in `components/`, modelled on `AddBookDialog` (same modal shape).
-Shows every field for one book and edits them in place, including the step-2 read fields.
-Opened from the grid; `App` holds the `Controller` like it already does for the dialog.
+Fill the step-1 skeleton in: show every field for one book and edit them in place,
+including the step-2 read state (mark-as-read toggle per person).
 
 - Needs `Db::update_book(&Book)` (or a dedicated draft type).
 - **Deliberately separate from `AddBookDialog`, not a shared Add|Edit mode.** The add

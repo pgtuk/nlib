@@ -9,41 +9,56 @@ pub struct BookCard {
     book: Book,
 }
 
+#[derive(Debug)]
+pub enum BookCardInput {
+    Clicked,
+}
+
+#[derive(Debug)]
+pub enum BookCardOutput {
+    Open(Book),
+}
+
 #[relm4::factory(pub)]
 impl FactoryComponent for BookCard {
     type Init = Book;
-    type Input = ();
-    type Output = ();
+    type Input = BookCardInput;
+    type Output = BookCardOutput;
     type CommandOutput = ();
     type ParentWidget = gtk::FlowBox;
 
     view! {
-        root = gtk::Box {
-            set_orientation: gtk::Orientation::Vertical,
-            set_spacing: 6,
+        root = gtk::Button {
             add_css_class: "card",
+            connect_clicked => BookCardInput::Clicked,
 
-            gtk::Picture {
-                #[watch]
-                set_filename: covers::existing_cover(self.book.id),
-                set_content_fit: gtk::ContentFit::Contain,
-                set_height_request: 220,
-            },
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 6,
+                add_css_class: "card",
 
-            gtk::Label {
-                set_label: &self.book.title,
-                add_css_class: "heading",
-                set_xalign: 0.0,
-                set_wrap: true,
-                set_max_width_chars: 20,
-                set_lines: 2,
-                set_ellipsize: gtk::pango::EllipsizeMode::End,
-            },
+                gtk::Picture {
+                    #[watch]
+                    set_filename: covers::existing_cover(self.book.id),
+                    set_content_fit: gtk::ContentFit::Contain,
+                    set_height_request: 220,
+                },
 
-            gtk::Label {
-                set_label: &self.book.author,
-                add_css_class: "dim-label",
-                set_xalign: 0.0,
+                gtk::Label {
+                    set_label: &self.book.title,
+                    add_css_class: "heading",
+                    set_xalign: 0.0,
+                    set_wrap: true,
+                    set_max_width_chars: 20,
+                    set_lines: 2,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                },
+
+                gtk::Label {
+                    set_label: &self.book.author,
+                    add_css_class: "dim-label",
+                    set_xalign: 0.0,
+                }
             }
         }
     }
@@ -60,5 +75,9 @@ impl FactoryComponent for BookCard {
             });
         }
         BookCard { book }
+    }
+
+    fn update(&mut self, _message: Self::Input, sender: relm4::prelude::FactorySender<Self>) {
+        let _ = sender.output(BookCardOutput::Open(self.book.clone()));
     }
 }
