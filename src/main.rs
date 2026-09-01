@@ -18,6 +18,7 @@ fn main() {
     let db = Db::open().expect("Couldn't init storage");
     let library = LibraryService::new(db);
     let app = RelmApp::new("dev.nlib.app");
+
     register_icon_theme();
     relm4::set_global_css(include_str!("../assets/style.css"));
 

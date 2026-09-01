@@ -8,9 +8,8 @@ A fast, lightweight desktop personal library manager built with **Rust**, **GTK4
 
 - 📖 **Catalog & Manage Books**: Add, view, edit details, and track reading statuses independently for Nika and Petya.
 - 🔍 **Multi-Source Book Search**:
-  - **OpenLibrary**: Open community registry (no API key required).
-  - **Google Books**: Rich international metadata with automatic high-resolution cover upscaling (optional API key for higher rate limits).
-  - **ISBNdb API v2**: Fast lookup by exact ISBN-10/13 or keyword search across international and Ukrainian publisher catalogs.
+  - **OpenLibrary**: Free community database (searches titles, authors, and ISBNs out-of-the-box).
+  - **Google Books**: Rich international metadata with automatic high-resolution cover upscaling (supports title, author, and `isbn:` searches).
 - 🖼️ **High-Resolution Covers**: Local caching with dedicated preview modal cards.
 - 🏷️ **Filters & Sorting**:
   - Filter by reading statuses (Read / Unread).
@@ -25,20 +24,14 @@ A fast, lightweight desktop personal library manager built with **Rust**, **GTK4
 
 ## Configuration
 
-You can configure external search provider API keys by creating a `.env` file in the root directory:
+You can configure an optional Google Books API key by creating a `.env` file in the root directory:
 
 ```ini
 # Optional: Higher rate limits and quota for Google Books search
 GOOGLE_BOOKS_API_KEY="your_google_books_api_key_here"
-
-# Optional: Required if using the ISBNdb search provider
-ISBNDB_API_KEY="your_isbndb_api_key_here"
 ```
 
-> **Note**:
-> - **OpenLibrary** works out-of-the-box with no API key.
-> - **Google Books** functions without an API key for basic searches, but providing `GOOGLE_BOOKS_API_KEY` prevents IP-based rate limiting.
-> - **ISBNdb** requires an active API key from [isbndb.com](https://isbndb.com/).
+> **Note**: Both **OpenLibrary** and **Google Books** work out-of-the-box without requiring any API key.
 
 ---
 

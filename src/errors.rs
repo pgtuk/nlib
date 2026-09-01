@@ -2,7 +2,6 @@ use thiserror::Error;
 
 use crate::services::covers::CoverError;
 use crate::services::google_books::GoogleBooksError;
-use crate::services::isbndb::IsbnDbError;
 use crate::services::library::LibraryError;
 
 #[derive(Error, Debug)]
@@ -15,9 +14,6 @@ pub enum AppError {
 
     #[error("Google Books error: {0}")]
     GoogleBooks(#[from] GoogleBooksError),
-
-    #[error("ISBNdb error: {0}")]
-    IsbnDb(#[from] IsbnDbError),
 
     #[error("Cover error: {0}")]
     Cover(#[from] CoverError),

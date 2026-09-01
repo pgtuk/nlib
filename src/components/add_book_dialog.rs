@@ -4,7 +4,6 @@ use relm4::{adw, gtk};
 
 use crate::models::BookDraft;
 use crate::services::google_books::search_google_books;
-use crate::services::isbndb::search_isbndb;
 use crate::services::openlibrary::search_openlibrary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -12,7 +11,6 @@ pub enum SearchProvider {
     #[default]
     OpenLibrary,
     GoogleBooks,
-    IsbnDb,
 }
 
 #[derive(Debug)]
@@ -58,7 +56,6 @@ pub struct AddBookDialog {
     search_button: gtk::Button,
     openlibrary_btn: gtk::ToggleButton,
     google_books_btn: gtk::ToggleButton,
-    isbndb_btn: gtk::ToggleButton,
     results_list: gtk::ListBox,
     results_scroll: gtk::ScrolledWindow,
     results: Vec<BookDraft>,
@@ -120,133 +117,123 @@ impl Component for AddBookDialog {
     type CommandOutput = DialogCmd;
 
     view! {
-            adw::Window {
-                set_title: Some("Add New Book"),
-                set_modal: true,
-                set_hide_on_close: true,
-                set_default_size: (820, 680),
+        adw::Window {
+            set_title: Some("Add New Book"),
+            set_modal: true,
+            set_hide_on_close: true,
+            set_default_size: (820, 680),
 
-                connect_close_request[sender] => move |_| {
-                    sender.input(AddBookDialogMsg::Cancel);
-                    gtk::glib::Propagation::Proceed
-                },
+            connect_close_request[sender] => move |_| {
+                sender.input(AddBookDialogMsg::Cancel);
+                gtk::glib::Propagation::Proceed
+            },
 
-                #[local_ref]
-                toast_overlay -> adw::ToastOverlay {
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
+            #[local_ref]
+            toast_overlay -> adw::ToastOverlay {
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
 
-                        adw::HeaderBar {
-                            set_show_start_title_buttons: false,
-                            set_show_end_title_buttons: false,
+                    adw::HeaderBar {
+                        set_show_start_title_buttons: false,
+                        set_show_end_title_buttons: false,
 
-                            pack_start = &gtk::Button {
-                                set_label: "Cancel",
-                                connect_clicked => AddBookDialogMsg::Cancel,
-                            },
-
-                            pack_end = &gtk::Button {
-                                set_label: "Save Book",
-                                add_css_class: "suggested-action",
-                                connect_clicked => AddBookDialogMsg::Save,
-                            },
+                        pack_start = &gtk::Button {
+                            set_label: "Cancel",
+                            connect_clicked => AddBookDialogMsg::Cancel,
                         },
 
-                        gtk::ScrolledWindow {
-                            set_vexpand: true,
+                        pack_end = &gtk::Button {
+                            set_label: "Save Book",
+                            add_css_class: "suggested-action",
+                            connect_clicked => AddBookDialogMsg::Save,
+                        },
+                    },
+
+                    gtk::ScrolledWindow {
+                        set_vexpand: true,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 16,
+                            set_margin_all: 16,
 
                             gtk::Box {
                                 set_orientation: gtk::Orientation::Vertical,
-                                set_spacing: 16,
-                                set_margin_all: 16,
+                                set_spacing: 8,
 
                                 gtk::Box {
-                                    set_orientation: gtk::Orientation::Vertical,
                                     set_spacing: 8,
+                                    set_valign: gtk::Align::Center,
 
-                                    gtk::Box {
-                                        set_spacing: 8,
-                                        set_valign: gtk::Align::Center,
-
-                                        gtk::Label {
-                                            set_label: "Search book on",
-                                            add_css_class: "heading",
-                                            set_xalign: 0.0,
-                                        },
-
-                                        gtk::Box {
-                                            set_halign: gtk::Align::Start,
-                                            add_css_class: "linked",
-
-                                            #[local_ref]
-                                            openlibrary_btn -> gtk::ToggleButton {
-                                                set_label: "OpenLibrary",
-                                                set_active: true,
-                                                connect_toggled[sender] => move |btn| {
-                                                    if btn.is_active() {
-                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
-                                                    }
-                                                },
-                                            },
-
-                                            #[local_ref]
-                                            google_books_btn -> gtk::ToggleButton {
-                                                set_label: "Google Books",
-                                                connect_toggled[sender] => move |btn| {
-                                                    if btn.is_active() {
-                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
-                                                    }
-                                                },
-                                            },
-
-                                            #[local_ref]
-                                            isbndb_btn -> gtk::ToggleButton {
-                                                set_label: "ISBNdb (ISBN)",
-                                                connect_toggled[sender] => move |btn| {
-                                                    if btn.is_active() {
-                                                        sender.input(AddBookDialogMsg::SetProvider(SearchProvider::IsbnDb));
-                                                    }
-                                                },
-                                            },
-                                        },
+                                    gtk::Label {
+                                        set_label: "Search book on",
+                                        add_css_class: "heading",
+                                        set_xalign: 0.0,
                                     },
 
                                     gtk::Box {
-                                        set_spacing: 6,
+                                        set_halign: gtk::Align::Start,
+                                        add_css_class: "linked",
 
                                         #[local_ref]
-                                        search_entry -> gtk::SearchEntry {
-                                            set_hexpand: true,
-                                            set_placeholder_text: Some("Title, author, or ISBN..."),
-                                            connect_activate => AddBookDialogMsg::Search,
-                                            connect_search_changed => AddBookDialogMsg::ClearSearchResults,
+                                        openlibrary_btn -> gtk::ToggleButton {
+                                            set_label: "OpenLibrary",
+                                            set_active: true,
+                                            connect_toggled[sender] => move |btn| {
+                                                if btn.is_active() {
+                                                    sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
+                                                }
+                                            },
                                         },
 
                                         #[local_ref]
-                                        search_button -> gtk::Button {
-                                            set_label: "Search",
-                                            connect_clicked => AddBookDialogMsg::Search,
+                                        google_books_btn -> gtk::ToggleButton {
+                                            set_label: "Google Books",
+                                            connect_toggled[sender] => move |btn| {
+                                                if btn.is_active() {
+                                                    sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
+                                                }
+                                            },
                                         },
                                     },
                                 },
 
-                                #[local_ref]
-                                results_scroll -> gtk::ScrolledWindow {
-                                    set_min_content_height: 120,
-                                    set_visible: false,
+                                gtk::Box {
+                                    set_spacing: 6,
 
                                     #[local_ref]
-                                    results_list -> gtk::ListBox {
-                                        add_css_class: "boxed-list",
-                                        connect_row_activated[sender] => move |_, row| {
-                                            sender.input(AddBookDialogMsg::SelectResult(row.index() as usize));
-                                        },
+                                    search_entry -> gtk::SearchEntry {
+                                        set_hexpand: true,
+                                        set_placeholder_text: Some("Title, author, or ISBN..."),
+                                        connect_activate => AddBookDialogMsg::Search,
+                                        connect_search_changed => AddBookDialogMsg::ClearSearchResults,
+                                    },
+
+                                    #[local_ref]
+                                    search_button -> gtk::Button {
+                                        set_label: "Search",
+                                        connect_clicked => AddBookDialogMsg::Search,
                                     },
                                 },
+                            },
 
-                                gtk::Box {
-                                    set_orientation: gtk::Orientation::Horizontal,
-                                    set_spacing: 16,
+                            #[local_ref]
+                            results_scroll -> gtk::ScrolledWindow {
+                                set_min_content_height: 120,
+                                set_visible: false,
+
+                                #[local_ref]
+                                results_list -> gtk::ListBox {
+                                    add_css_class: "boxed-list",
+                                    connect_row_activated[sender] => move |_, row| {
+                                        sender.input(AddBookDialogMsg::SelectResult(row.index() as usize));
+                                    },
+                                },
+                            },
+
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_spacing: 16,
 
                                 gtk::Box {
                                     set_orientation: gtk::Orientation::Vertical,
@@ -335,7 +322,7 @@ impl Component for AddBookDialog {
                                 },
                             },
                         },
-                    }
+                    },
                 }
             }
         }
@@ -348,9 +335,7 @@ impl Component for AddBookDialog {
     ) -> ComponentParts<Self> {
         let openlibrary_btn = gtk::ToggleButton::with_label("OpenLibrary");
         let google_books_btn = gtk::ToggleButton::with_label("Google Books");
-        let isbndb_btn = gtk::ToggleButton::with_label("ISBNdb (ISBN)");
         google_books_btn.set_group(Some(&openlibrary_btn));
-        isbndb_btn.set_group(Some(&openlibrary_btn));
 
         let cover_placeholder_label = gtk::Label::new(Some("Cover preview"));
         let toast_overlay = adw::ToastOverlay::new();
@@ -373,7 +358,6 @@ impl Component for AddBookDialog {
             search_button: gtk::Button::new(),
             openlibrary_btn,
             google_books_btn,
-            isbndb_btn,
             results_list: gtk::ListBox::new(),
             results_scroll: gtk::ScrolledWindow::new(),
             results: Vec::new(),
@@ -393,7 +377,6 @@ impl Component for AddBookDialog {
         let search_button = &model.search_button;
         let openlibrary_btn = &model.openlibrary_btn;
         let google_books_btn = &model.google_books_btn;
-        let isbndb_btn = &model.isbndb_btn;
         let results_list = &model.results_list;
         let results_scroll = &model.results_scroll;
 
@@ -520,9 +503,6 @@ impl Component for AddBookDialog {
                         }
                         SearchProvider::GoogleBooks => {
                             search_google_books(&q).await.map_err(|e| e.to_string())
-                        }
-                        SearchProvider::IsbnDb => {
-                            search_isbndb(&q).await.map_err(|e| e.to_string())
                         }
                     };
                     DialogCmd::SearchResult(res)
