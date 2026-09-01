@@ -3,13 +3,22 @@ use relm4::prelude::*;
 use relm4::{adw, gtk};
 
 use crate::models::BookDraft;
+use crate::services::google_books::search_google_books;
 use crate::services::openlibrary::search_openlibrary;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchProvider {
+    #[default]
+    OpenLibrary,
+    GoogleBooks,
+}
 
 #[derive(Debug)]
 pub enum AddBookDialogMsg {
     Save,
     Cancel,
     Search,
+    SetProvider(SearchProvider),
     SelectResult(usize),
     CoverUrlChanged(String),
     ClearSearchResults,
@@ -18,11 +27,12 @@ pub enum AddBookDialogMsg {
 #[derive(Debug)]
 pub enum AddBookDialogOutput {
     Save(BookDraft),
+    Error(String),
 }
 
 #[derive(Debug)]
 pub enum DialogCmd {
-    SearchResult(Result<Vec<BookDraft>, reqwest::Error>),
+    SearchResult(Result<Vec<BookDraft>, String>),
     CoverBytes(Result<Vec<u8>, reqwest::Error>),
 }
 
@@ -38,8 +48,11 @@ pub struct AddBookDialog {
     cover_preview: gtk::Picture,
     cover_placeholder: gtk::Frame,
 
+    provider: SearchProvider,
     search_entry: gtk::SearchEntry,
     search_button: gtk::Button,
+    openlibrary_btn: gtk::ToggleButton,
+    google_books_btn: gtk::ToggleButton,
     results_list: gtk::ListBox,
     results_scroll: gtk::ScrolledWindow,
     results: Vec<BookDraft>,
@@ -97,8 +110,6 @@ impl Component for AddBookDialog {
         adw::Window {
             set_title: Some("Add New Book"),
             set_modal: true,
-            // Keep the instance alive across opens: the X button hides
-            // rather than destroys, so the parent's Controller stays valid.
             set_hide_on_close: true,
             set_default_size: (480, 580),
 
@@ -111,7 +122,6 @@ impl Component for AddBookDialog {
                 set_orientation: gtk::Orientation::Vertical,
 
                 adw::HeaderBar {
-                    // Explicit Cancel/Save instead of window controls.
                     set_show_start_title_buttons: false,
                     set_show_end_title_buttons: false,
 
@@ -132,8 +142,46 @@ impl Component for AddBookDialog {
                     set_spacing: 12,
                     set_margin_all: 12,
 
-                    adw::PreferencesGroup {
-                        set_title: "Search OpenLibrary",
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 8,
+
+                        gtk::Box {
+                            set_spacing: 8,
+                            set_valign: gtk::Align::Center,
+
+                            gtk::Label {
+                                set_label: "Search book on",
+                                add_css_class: "heading",
+                                set_xalign: 0.0,
+                            },
+
+                            gtk::Box {
+                                set_halign: gtk::Align::Start,
+                                add_css_class: "linked",
+
+                                #[local_ref]
+                                openlibrary_btn -> gtk::ToggleButton {
+                                    set_label: "OpenLibrary",
+                                    set_active: true,
+                                    connect_toggled[sender] => move |btn| {
+                                        if btn.is_active() {
+                                            sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
+                                        }
+                                    },
+                                },
+
+                                #[local_ref]
+                                google_books_btn -> gtk::ToggleButton {
+                                    set_label: "Google Books",
+                                    connect_toggled[sender] => move |btn| {
+                                        if btn.is_active() {
+                                            sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
+                                        }
+                                    },
+                                },
+                            },
+                        },
 
                         gtk::Box {
                             set_spacing: 6,
@@ -143,7 +191,7 @@ impl Component for AddBookDialog {
                                 set_hexpand: true,
                                 set_placeholder_text: Some("Title or author..."),
                                 connect_activate => AddBookDialogMsg::Search,
-                                connect_search_changed => AddBookDialogMsg::ClearSearchResults
+                                connect_search_changed => AddBookDialogMsg::ClearSearchResults,
                             },
 
                             #[local_ref]
@@ -157,7 +205,7 @@ impl Component for AddBookDialog {
                     #[local_ref]
                     results_scroll -> gtk::ScrolledWindow {
                         set_min_content_height: 120,
-                        set_visible: false,          // hidden until a search returns something
+                        set_visible: false,
 
                         #[local_ref]
                         results_list -> gtk::ListBox {
@@ -192,15 +240,15 @@ impl Component for AddBookDialog {
 
                             #[local_ref]
                             cover_preview -> gtk::Picture {
-                                set_visible: false,               // hidden until an image arrives
+                                set_visible: false,
                                 set_content_fit: gtk::ContentFit::Contain,
-                                set_size_request: (140, 210),     // same footprint → no layout jump
+                                set_size_request: (140, 210),
                             },
                         },
 
                         adw::PreferencesGroup {
                             set_title: "Book details",
-                            set_hexpand: true,              // fields take the remaining width
+                            set_hexpand: true,
 
                             #[local_ref]
                             title_entry -> adw::EntryRow { set_title: "Title" },
@@ -245,6 +293,10 @@ impl Component for AddBookDialog {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let openlibrary_btn = gtk::ToggleButton::with_label("OpenLibrary");
+        let google_books_btn = gtk::ToggleButton::with_label("Google Books");
+        google_books_btn.set_group(Some(&openlibrary_btn));
+
         let model = AddBookDialog {
             window: root.clone(),
             title_entry: adw::EntryRow::default(),
@@ -254,8 +306,11 @@ impl Component for AddBookDialog {
             cover_bytes: Vec::new(),
             cover_preview: gtk::Picture::new(),
             cover_placeholder: gtk::Frame::new(None),
+            provider: SearchProvider::OpenLibrary,
             search_entry: gtk::SearchEntry::new(),
             search_button: gtk::Button::new(),
+            openlibrary_btn,
+            google_books_btn,
             results_list: gtk::ListBox::new(),
             results_scroll: gtk::ScrolledWindow::new(),
             results: Vec::new(),
@@ -269,6 +324,8 @@ impl Component for AddBookDialog {
         let cover_placeholder = &model.cover_placeholder;
         let search_entry = &model.search_entry;
         let search_button = &model.search_button;
+        let openlibrary_btn = &model.openlibrary_btn;
+        let google_books_btn = &model.google_books_btn;
         let results_list = &model.results_list;
         let results_scroll = &model.results_scroll;
 
@@ -280,7 +337,7 @@ impl Component for AddBookDialog {
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
         match message {
@@ -291,7 +348,7 @@ impl Component for AddBookDialog {
                 let results = match msg {
                     Ok(results) => results,
                     Err(e) => {
-                        eprintln!("OpenLibrary search failed: {e}");
+                        let _ = sender.output(AddBookDialogOutput::Error(e));
                         return;
                     }
                 };
@@ -333,6 +390,10 @@ impl Component for AddBookDialog {
                 self.window.set_visible(false);
             }
 
+            AddBookDialogMsg::SetProvider(p) => {
+                self.provider = p;
+            }
+
             AddBookDialogMsg::Save => {
                 let mut has_error = false;
                 let draft = self.draft();
@@ -342,11 +403,11 @@ impl Component for AddBookDialog {
 
                 if draft.title.is_empty() {
                     self.title_entry.add_css_class("error");
-                    has_error = true
+                    has_error = true;
                 }
                 if draft.author.is_empty() {
                     self.author_entry.add_css_class("error");
-                    has_error = true
+                    has_error = true;
                 }
                 if has_error {
                     return;
@@ -365,8 +426,17 @@ impl Component for AddBookDialog {
                 self.search_button.set_sensitive(false);
                 self.search_button.set_label("Searching...");
 
+                let provider = self.provider;
                 sender.oneshot_command(async move {
-                    DialogCmd::SearchResult(search_openlibrary(&q).await)
+                    let res = match provider {
+                        SearchProvider::OpenLibrary => {
+                            search_openlibrary(&q).await.map_err(|e| e.to_string())
+                        }
+                        SearchProvider::GoogleBooks => {
+                            search_google_books(&q).await.map_err(|e| e.to_string())
+                        }
+                    };
+                    DialogCmd::SearchResult(res)
                 });
             }
 
@@ -379,6 +449,8 @@ impl Component for AddBookDialog {
                 self.author_entry.set_text(&d.author);
                 self.cover_entry.set_text(&d.cover_url);
                 self.description_view.buffer().set_text(&d.description);
+
+                self.results_scroll.set_visible(false);
             }
 
             AddBookDialogMsg::CoverUrlChanged(url) => {
@@ -407,5 +479,8 @@ fn clean_text(input: &gtk::TextView) -> String {
 }
 
 async fn fetch_bytes(url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    Ok(reqwest::get(url).await?.bytes().await?.to_vec())
+    let client = reqwest::Client::builder()
+        .user_agent("nlib/0.1.0")
+        .build()?;
+    Ok(client.get(url).send().await?.bytes().await?.to_vec())
 }

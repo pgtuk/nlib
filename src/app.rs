@@ -38,6 +38,7 @@ pub enum AppAction {
     OpenAddDialog,
     SaveBook(BookDraft),
     OpenBook(Book),
+    UpdateBook(Book),
     DeleteBook(i64),
     ShowError(AppError),
 }
@@ -104,6 +105,7 @@ impl Component for App {
             .launch(())
             .forward(sender.input_sender(), |out| match out {
                 AddBookDialogOutput::Save(draft) => AppAction::SaveBook(draft),
+                AddBookDialogOutput::Error(err) => AppAction::ShowError(AppError::Search(err)),
             });
 
         let mut model = App {
@@ -160,11 +162,23 @@ impl Component for App {
                     .transient_for(root)
                     .launch(book)
                     .forward(sender.input_sender(), |out| match out {
+                        BookViewOutput::Save(book) => AppAction::UpdateBook(book),
                         BookViewOutput::Delete(id) => AppAction::DeleteBook(id),
                     });
                 modal.widget().present();
                 self.book_view_modal = Some(modal);
             }
+            AppAction::UpdateBook(book) => match self.library.update_book(&book) {
+                Ok(()) => {
+                    self.book_view_modal = None;
+                    if let Err(e) = self.refresh_grid() {
+                        sender.input(AppAction::ShowError(e));
+                    }
+                }
+                Err(e) => {
+                    sender.input(AppAction::ShowError(e.into()));
+                }
+            },
             AppAction::DeleteBook(id) => match self.library.delete_book(id) {
                 Ok(()) => {
                     self.book_view_modal = None;

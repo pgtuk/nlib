@@ -5,6 +5,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LibraryError {
+    #[error("Book \"{title}\" by {author} already exists in your library")]
+    AlreadyExists { title: String, author: String },
+
     #[error("Database error: {0}")]
     Storage(#[from] StorageError),
 
@@ -22,11 +25,33 @@ impl LibraryService {
     }
 
     pub fn add_book(&self, draft: &BookDraft) -> Result<i64, LibraryError> {
+        if self.db.book_exists(&draft.title, &draft.author)? {
+            return Err(LibraryError::AlreadyExists {
+                title: draft.title.clone(),
+                author: draft.author.clone(),
+            });
+        }
+
         let id = self.db.add_book(draft)?;
         if let Some(bytes) = &draft.cover_bytes {
             covers::save_cover_bytes(id, bytes)?;
         }
         Ok(id)
+    }
+
+    pub fn update_book(&self, book: &Book) -> Result<(), LibraryError> {
+        if self
+            .db
+            .book_exists_other(book.id, &book.title, &book.author)?
+        {
+            return Err(LibraryError::AlreadyExists {
+                title: book.title.clone(),
+                author: book.author.clone(),
+            });
+        }
+
+        self.db.update_book(book)?;
+        Ok(())
     }
 
     pub fn books(&self) -> Result<Vec<Book>, LibraryError> {

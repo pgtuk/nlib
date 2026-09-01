@@ -73,6 +73,25 @@ impl Db {
         Ok(books)
     }
 
+    pub fn book_exists(&self, title: &str, author: &str) -> Result<bool> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT 1 FROM books WHERE LOWER(TRIM(title)) = LOWER(TRIM(?1)) AND LOWER(TRIM(author)) = LOWER(TRIM(?2)) LIMIT 1",
+        )?;
+        let exists = stmt.exists(params![title, author])?;
+        Ok(exists)
+    }
+
+    pub fn book_exists_other(&self, id: i64, title: &str, author: &str) -> Result<bool> {
+        // invoked upon book update, so user cant create 2 identical books
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT 1 FROM books WHERE id != ?1 AND LOWER(TRIM(title)) = LOWER(TRIM(?2)) AND LOWER(TRIM(author)) = LOWER(TRIM(?3)) LIMIT 1",
+        )?;
+        let exists = stmt.exists(params![id, title, author])?;
+        Ok(exists)
+    }
+
     pub fn add_book(&self, draft: &BookDraft) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
@@ -86,6 +105,20 @@ impl Db {
         )?;
 
         Ok(conn.last_insert_rowid())
+    }
+
+    pub fn update_book(&self, book: &Book) -> Result<()> {
+        self.conn().execute(
+            "UPDATE books SET title = ?1, author = ?2, description = ?3, cover_url = ?4 WHERE id = ?5",
+            params![
+                book.title,
+                book.author,
+                book.description,
+                book.cover_url,
+                book.id,
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn delete_book(&self, id: i64) -> Result<()> {

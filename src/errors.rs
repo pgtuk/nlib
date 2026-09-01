@@ -13,4 +13,7 @@ pub enum AppError {
 
     #[error("Cover image error: {0}")]
     Cover(#[from] CoverError),
+
+    #[error("{0}")]
+    Search(String),
 }

@@ -1,22 +1,42 @@
-use crate::models::Book;
 use relm4::adw::prelude::*;
+use relm4::prelude::*;
 use relm4::{adw, gtk};
 
-use relm4::prelude::*;
+use crate::models::Book;
+use crate::services::covers;
 
 pub struct BookViewModal {
     book: Book,
+    title_entry: adw::EntryRow,
+    author_entry: adw::EntryRow,
+    cover_entry: adw::EntryRow,
+    description_view: gtk::TextView,
 }
 
 #[derive(Debug)]
 pub enum BookViewInput {
+    Save,
+    Cancel,
     DeleteRequested,
     DeleteConfirmed,
 }
 
 #[derive(Debug)]
 pub enum BookViewOutput {
+    Save(Book),
     Delete(i64),
+}
+
+impl BookViewModal {
+    fn updated_book(&self) -> Book {
+        Book {
+            id: self.book.id,
+            title: clean_entry(&self.title_entry),
+            author: clean_entry(&self.author_entry),
+            description: clean_text(&self.description_view),
+            cover_url: clean_entry(&self.cover_entry),
+        }
+    }
 }
 
 #[relm4::component(pub)]
@@ -30,11 +50,98 @@ impl Component for BookViewModal {
         adw::Window {
             set_title: Some(&model.book.title),
             set_modal: true,
-            set_default_size: (480, 600),
+            set_default_size: (520, 620),
+
+            connect_close_request[sender] => move |_| {
+                sender.input(BookViewInput::Cancel);
+                gtk::glib::Propagation::Proceed
+            },
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
-                adw::HeaderBar {},
+
+                adw::HeaderBar {
+                    set_show_start_title_buttons: false,
+                    set_show_end_title_buttons: false,
+
+                    pack_start = &gtk::Button {
+                        set_label: "Cancel",
+                        connect_clicked => BookViewInput::Cancel,
+                    },
+
+                    pack_end = &gtk::Button {
+                        set_label: "Save",
+                        add_css_class: "suggested-action",
+                        connect_clicked => BookViewInput::Save,
+                    },
+
+                    pack_end = &gtk::Button {
+                        set_icon_name: "user-trash-symbolic",
+                        set_tooltip_text: Some("Delete book"),
+                        add_css_class: "destructive-action",
+                        connect_clicked => BookViewInput::DeleteRequested,
+                    },
+                },
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 12,
+                    set_margin_all: 12,
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_spacing: 12,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_valign: gtk::Align::Start,
+
+                            gtk::Picture {
+                                set_filename: covers::existing_cover(model.book.id),
+                                set_content_fit: gtk::ContentFit::Contain,
+                                set_size_request: (140, 210),
+                            },
+                        },
+
+                        adw::PreferencesGroup {
+                            set_title: "Book details",
+                            set_hexpand: true,
+
+                            #[local_ref]
+                            title_entry -> adw::EntryRow {
+                                set_title: "Title",
+                            },
+                            #[local_ref]
+                            author_entry -> adw::EntryRow {
+                                set_title: "Author",
+                            },
+                            #[local_ref]
+                            cover_entry -> adw::EntryRow {
+                                set_title: "Cover image URL",
+                            },
+                        },
+                    },
+
+                    gtk::Label {
+                        set_label: "Description",
+                        set_xalign: 0.0,
+                        add_css_class: "heading",
+                    },
+
+                    gtk::ScrolledWindow {
+                        set_vexpand: true,
+                        add_css_class: "card",
+
+                        #[local_ref]
+                        description_view -> gtk::TextView {
+                            set_wrap_mode: gtk::WrapMode::WordChar,
+                            set_top_margin: 8,
+                            set_bottom_margin: 8,
+                            set_left_margin: 8,
+                            set_right_margin: 8,
+                        },
+                    },
+                },
             }
         }
     }
@@ -42,15 +149,66 @@ impl Component for BookViewModal {
     fn init(
         book: Self::Init,
         root: Self::Root,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = BookViewModal { book };
+        let title_entry = adw::EntryRow::default();
+        title_entry.set_text(&book.title);
+
+        let author_entry = adw::EntryRow::default();
+        author_entry.set_text(&book.author);
+
+        let cover_entry = adw::EntryRow::default();
+        cover_entry.set_text(&book.cover_url);
+
+        let description_view = gtk::TextView::new();
+        description_view.buffer().set_text(&book.description);
+
+        let model = BookViewModal {
+            book,
+            title_entry,
+            author_entry,
+            cover_entry,
+            description_view,
+        };
+
+        let title_entry = &model.title_entry;
+        let author_entry = &model.author_entry;
+        let cover_entry = &model.cover_entry;
+        let description_view = &model.description_view;
+
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
+            BookViewInput::Cancel => {
+                root.close();
+            }
+
+            BookViewInput::Save => {
+                let mut has_error = false;
+                let updated = self.updated_book();
+
+                self.title_entry.remove_css_class("error");
+                self.author_entry.remove_css_class("error");
+
+                if updated.title.is_empty() {
+                    self.title_entry.add_css_class("error");
+                    has_error = true;
+                }
+                if updated.author.is_empty() {
+                    self.author_entry.add_css_class("error");
+                    has_error = true;
+                }
+                if has_error {
+                    return;
+                }
+
+                let _ = sender.output(BookViewOutput::Save(updated));
+                root.close();
+            }
+
             BookViewInput::DeleteRequested => {
                 let dialog = adw::AlertDialog::new(
                     Some("Delete this book?"),
@@ -74,9 +232,21 @@ impl Component for BookViewModal {
 
                 dialog.present(Some(root));
             }
+
             BookViewInput::DeleteConfirmed => {
                 let _ = sender.output(BookViewOutput::Delete(self.book.id));
+                root.close();
             }
         }
     }
+}
+
+fn clean_entry(input: &adw::EntryRow) -> String {
+    input.text().trim().to_string()
+}
+
+fn clean_text(input: &gtk::TextView) -> String {
+    let buffer = input.buffer();
+    let s = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+    s.trim().to_string()
 }

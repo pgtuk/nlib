@@ -11,6 +11,8 @@ use services::library::LibraryService;
 use services::storage::Db;
 
 fn main() {
+    dotenvy::dotenv().ok();
+
     let db = Db::open().expect("Couldn't init storage");
     let library = LibraryService::new(db);
     let app = RelmApp::new("dev.nlib.app");
