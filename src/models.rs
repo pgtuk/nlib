@@ -6,6 +6,8 @@ pub struct BookDraft {
     pub description: String,
     pub cover_url: String,
     pub cover_bytes: Option<Vec<u8>>,
+    pub read_by_nika: bool,
+    pub read_by_petya: bool,
 }
 
 impl BookDraft {}
@@ -18,4 +20,6 @@ pub struct Book {
     pub author: String,
     pub description: String,
     pub cover_url: String,
+    pub read_by_nika: bool,
+    pub read_by_petya: bool,
 }

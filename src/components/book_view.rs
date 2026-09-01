@@ -10,6 +10,8 @@ pub struct BookViewModal {
     title_entry: adw::EntryRow,
     author_entry: adw::EntryRow,
     cover_entry: adw::EntryRow,
+    read_by_nika_switch: adw::SwitchRow,
+    read_by_petya_switch: adw::SwitchRow,
     description_view: gtk::TextView,
 }
 
@@ -35,6 +37,8 @@ impl BookViewModal {
             author: clean_entry(&self.author_entry),
             description: clean_text(&self.description_view),
             cover_url: clean_entry(&self.cover_entry),
+            read_by_nika: self.read_by_nika_switch.is_active(),
+            read_by_petya: self.read_by_petya_switch.is_active(),
         }
     }
 }
@@ -50,7 +54,7 @@ impl Component for BookViewModal {
         adw::Window {
             set_title: Some(&model.book.title),
             set_modal: true,
-            set_default_size: (520, 620),
+            set_default_size: (520, 640),
 
             connect_close_request[sender] => move |_| {
                 sender.input(BookViewInput::Cancel);
@@ -103,21 +107,39 @@ impl Component for BookViewModal {
                             },
                         },
 
-                        adw::PreferencesGroup {
-                            set_title: "Book details",
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 10,
                             set_hexpand: true,
 
-                            #[local_ref]
-                            title_entry -> adw::EntryRow {
-                                set_title: "Title",
+                            adw::PreferencesGroup {
+                                set_title: "Book details",
+
+                                #[local_ref]
+                                title_entry -> adw::EntryRow {
+                                    set_title: "Title",
+                                },
+                                #[local_ref]
+                                author_entry -> adw::EntryRow {
+                                    set_title: "Author",
+                                },
+                                #[local_ref]
+                                cover_entry -> adw::EntryRow {
+                                    set_title: "Cover image URL",
+                                },
                             },
-                            #[local_ref]
-                            author_entry -> adw::EntryRow {
-                                set_title: "Author",
-                            },
-                            #[local_ref]
-                            cover_entry -> adw::EntryRow {
-                                set_title: "Cover image URL",
+
+                            adw::PreferencesGroup {
+                                set_title: "Reading status",
+
+                                #[local_ref]
+                                read_by_nika_switch -> adw::SwitchRow {
+                                    set_title: "Read by Nika",
+                                },
+                                #[local_ref]
+                                read_by_petya_switch -> adw::SwitchRow {
+                                    set_title: "Read by Petya",
+                                },
                             },
                         },
                     },
@@ -160,6 +182,12 @@ impl Component for BookViewModal {
         let cover_entry = adw::EntryRow::default();
         cover_entry.set_text(&book.cover_url);
 
+        let read_by_nika_switch = adw::SwitchRow::default();
+        read_by_nika_switch.set_active(book.read_by_nika);
+
+        let read_by_petya_switch = adw::SwitchRow::default();
+        read_by_petya_switch.set_active(book.read_by_petya);
+
         let description_view = gtk::TextView::new();
         description_view.buffer().set_text(&book.description);
 
@@ -168,12 +196,16 @@ impl Component for BookViewModal {
             title_entry,
             author_entry,
             cover_entry,
+            read_by_nika_switch,
+            read_by_petya_switch,
             description_view,
         };
 
         let title_entry = &model.title_entry;
         let author_entry = &model.author_entry;
         let cover_entry = &model.cover_entry;
+        let read_by_nika_switch = &model.read_by_nika_switch;
+        let read_by_petya_switch = &model.read_by_petya_switch;
         let description_view = &model.description_view;
 
         let widgets = view_output!();

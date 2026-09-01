@@ -42,6 +42,8 @@ pub struct AddBookDialog {
     title_entry: adw::EntryRow,
     author_entry: adw::EntryRow,
     cover_entry: adw::EntryRow,
+    read_by_nika_switch: adw::SwitchRow,
+    read_by_petya_switch: adw::SwitchRow,
     description_view: gtk::TextView,
 
     cover_bytes: Vec<u8>,
@@ -70,6 +72,8 @@ impl AddBookDialog {
             } else {
                 Some(self.cover_bytes.clone())
             },
+            read_by_nika: self.read_by_nika_switch.is_active(),
+            read_by_petya: self.read_by_petya_switch.is_active(),
         }
     }
 
@@ -77,6 +81,8 @@ impl AddBookDialog {
         self.title_entry.set_text("");
         self.author_entry.set_text("");
         self.cover_entry.set_text("");
+        self.read_by_nika_switch.set_active(false);
+        self.read_by_petya_switch.set_active(false);
         self.description_view.buffer().set_text("");
 
         self.search_entry.set_text("");
@@ -92,10 +98,11 @@ impl AddBookDialog {
         self.show_cover_placeholder();
     }
 
-    fn show_cover_placeholder(&self) {
+    fn show_cover_placeholder(&mut self) {
         self.cover_preview.set_paintable(gtk::gdk::Paintable::NONE);
         self.cover_preview.set_visible(false);
         self.cover_placeholder.set_visible(true);
+        self.cover_bytes.clear();
     }
 }
 
@@ -111,7 +118,7 @@ impl Component for AddBookDialog {
             set_title: Some("Add New Book"),
             set_modal: true,
             set_hide_on_close: true,
-            set_default_size: (480, 580),
+            set_default_size: (480, 640),
 
             connect_close_request[sender] => move |_| {
                 sender.input(AddBookDialogMsg::Cancel);
@@ -246,19 +253,37 @@ impl Component for AddBookDialog {
                             },
                         },
 
-                        adw::PreferencesGroup {
-                            set_title: "Book details",
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 10,
                             set_hexpand: true,
 
-                            #[local_ref]
-                            title_entry -> adw::EntryRow { set_title: "Title" },
-                            #[local_ref]
-                            author_entry -> adw::EntryRow { set_title: "Author" },
-                            #[local_ref]
-                            cover_entry -> adw::EntryRow {
-                                set_title: "Cover image URL (optional)",
-                                connect_changed[sender] => move |entry| {
-                                    sender.input(AddBookDialogMsg::CoverUrlChanged(entry.text().to_string()));
+                            adw::PreferencesGroup {
+                                set_title: "Book details",
+
+                                #[local_ref]
+                                title_entry -> adw::EntryRow { set_title: "Title" },
+                                #[local_ref]
+                                author_entry -> adw::EntryRow { set_title: "Author" },
+                                #[local_ref]
+                                cover_entry -> adw::EntryRow {
+                                    set_title: "Cover image URL (optional)",
+                                    connect_changed[sender] => move |entry| {
+                                        sender.input(AddBookDialogMsg::CoverUrlChanged(entry.text().to_string()));
+                                    },
+                                },
+                            },
+
+                            adw::PreferencesGroup {
+                                set_title: "Reading status",
+
+                                #[local_ref]
+                                read_by_nika_switch -> adw::SwitchRow {
+                                    set_title: "Read by Nika",
+                                },
+                                #[local_ref]
+                                read_by_petya_switch -> adw::SwitchRow {
+                                    set_title: "Read by Petya",
                                 },
                             },
                         },
@@ -302,6 +327,8 @@ impl Component for AddBookDialog {
             title_entry: adw::EntryRow::default(),
             author_entry: adw::EntryRow::default(),
             cover_entry: adw::EntryRow::default(),
+            read_by_nika_switch: adw::SwitchRow::default(),
+            read_by_petya_switch: adw::SwitchRow::default(),
             description_view: gtk::TextView::new(),
             cover_bytes: Vec::new(),
             cover_preview: gtk::Picture::new(),
@@ -319,6 +346,8 @@ impl Component for AddBookDialog {
         let title_entry = &model.title_entry;
         let author_entry = &model.author_entry;
         let cover_entry = &model.cover_entry;
+        let read_by_nika_switch = &model.read_by_nika_switch;
+        let read_by_petya_switch = &model.read_by_petya_switch;
         let description_view = &model.description_view;
         let cover_preview = &model.cover_preview;
         let cover_placeholder = &model.cover_placeholder;
@@ -451,6 +480,9 @@ impl Component for AddBookDialog {
                 self.description_view.buffer().set_text(&d.description);
 
                 self.results_scroll.set_visible(false);
+
+                // Explicitly trigger cover fetch and preview for selected book
+                sender.input(AddBookDialogMsg::CoverUrlChanged(d.cover_url.clone()));
             }
 
             AddBookDialogMsg::CoverUrlChanged(url) => {

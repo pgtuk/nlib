@@ -58,7 +58,25 @@ impl FactoryComponent for BookCard {
                     set_label: &self.book.author,
                     add_css_class: "dim-label",
                     set_xalign: 0.0,
-                }
+                },
+
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 6,
+                    set_visible: self.book.read_by_nika || self.book.read_by_petya,
+
+                    gtk::Label {
+                        set_label: "Nika",
+                        add_css_class: "badge-nika",
+                        set_visible: self.book.read_by_nika,
+                    },
+
+                    gtk::Label {
+                        set_label: "Petya",
+                        add_css_class: "badge-petya",
+                        set_visible: self.book.read_by_petya,
+                    },
+                },
             }
         }
     }

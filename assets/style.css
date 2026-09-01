@@ -146,3 +146,24 @@ textview text {
     border-radius: 8px;
     background-color: #1e2030;
 }
+
+/* Reader Badges */
+.badge-nika {
+    background-color: alpha(#f5bde6, 0.2);
+    color: #f5bde6;
+    border: 1px solid alpha(#f5bde6, 0.5);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+.badge-petya {
+    background-color: alpha(#8aadf4, 0.2);
+    color: #8aadf4;
+    border: 1px solid alpha(#8aadf4, 0.5);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}

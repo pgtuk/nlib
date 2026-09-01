@@ -38,10 +38,21 @@ impl Db {
                 title TEXT NOT NULL,
                 author TEXT NOT NULL,
                 description TEXT,
-                cover_url TEXT
+                cover_url TEXT,
+                read_by_nika BOOLEAN NOT NULL DEFAULT 0,
+                read_by_petya BOOLEAN NOT NULL DEFAULT 0
             )",
             [],
         )?;
+
+        let _ = conn.execute(
+            "ALTER TABLE books ADD COLUMN read_by_nika BOOLEAN NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE books ADD COLUMN read_by_petya BOOLEAN NOT NULL DEFAULT 0",
+            [],
+        );
 
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
@@ -53,7 +64,7 @@ impl Db {
     pub fn books(&self) -> Result<Vec<Book>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, author, description, cover_url FROM books ORDER BY id DESC",
+            "SELECT id, title, author, description, cover_url, read_by_nika, read_by_petya FROM books ORDER BY id DESC",
         )?;
 
         let books_iter = stmt.query_map([], |row| {
@@ -63,6 +74,8 @@ impl Db {
                 author: row.get(2)?,
                 description: row.get(3)?,
                 cover_url: row.get(4)?,
+                read_by_nika: row.get(5)?,
+                read_by_petya: row.get(6)?,
             })
         })?;
 
@@ -83,7 +96,6 @@ impl Db {
     }
 
     pub fn book_exists_other(&self, id: i64, title: &str, author: &str) -> Result<bool> {
-        // invoked upon book update, so user cant create 2 identical books
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT 1 FROM books WHERE id != ?1 AND LOWER(TRIM(title)) = LOWER(TRIM(?2)) AND LOWER(TRIM(author)) = LOWER(TRIM(?3)) LIMIT 1",
@@ -95,12 +107,14 @@ impl Db {
     pub fn add_book(&self, draft: &BookDraft) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO books (title, author, description, cover_url) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO books (title, author, description, cover_url, read_by_nika, read_by_petya) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 draft.title,
                 draft.author,
                 draft.description,
-                draft.cover_url
+                draft.cover_url,
+                draft.read_by_nika,
+                draft.read_by_petya,
             ],
         )?;
 
@@ -109,12 +123,14 @@ impl Db {
 
     pub fn update_book(&self, book: &Book) -> Result<()> {
         self.conn().execute(
-            "UPDATE books SET title = ?1, author = ?2, description = ?3, cover_url = ?4 WHERE id = ?5",
+            "UPDATE books SET title = ?1, author = ?2, description = ?3, cover_url = ?4, read_by_nika = ?5, read_by_petya = ?6 WHERE id = ?7",
             params![
                 book.title,
                 book.author,
                 book.description,
                 book.cover_url,
+                book.read_by_nika,
+                book.read_by_petya,
                 book.id,
             ],
         )?;

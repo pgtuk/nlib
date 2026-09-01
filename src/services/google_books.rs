@@ -99,5 +99,7 @@ fn volume_to_draft(info: GoogleVolumeInfo) -> BookDraft {
         cover_url,
         description,
         cover_bytes: None,
+        read_by_nika: false,
+        read_by_petya: false,
     }
 }
