@@ -1,10 +1,13 @@
+use serde::{Deserialize, Serialize};
+
 // for user input
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct BookDraft {
     pub title: String,
     pub author: String,
     pub description: String,
     pub cover_url: String,
+    #[serde(skip)]
     pub cover_bytes: Option<Vec<u8>>,
     pub read_by_nika: bool,
     pub read_by_petya: bool,
@@ -13,7 +16,7 @@ pub struct BookDraft {
 impl BookDraft {}
 
 // for object from db
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Book {
     pub id: i64,
     pub title: String,

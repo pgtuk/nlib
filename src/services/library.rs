@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+
 use crate::models::{Book, BookDraft};
 use crate::services::covers::{self, CoverError};
 use crate::services::storage::{Db, StorageError};
@@ -13,8 +16,21 @@ pub enum LibraryError {
 
     #[error("Cover error: {0}")]
     Cover(#[from] CoverError),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
+#[derive(Debug, Default)]
+pub struct ImportSummary {
+    pub imported: usize,
+    pub skipped_duplicates: usize,
+}
+
+#[derive(Clone)]
 pub struct LibraryService {
     db: Db,
 }
@@ -63,5 +79,31 @@ impl LibraryService {
         covers::delete_cover(id);
 
         Ok(())
+    }
+
+    pub fn export_to_json(&self, path: &Path) -> Result<usize, LibraryError> {
+        let books = self.books()?;
+        let count = books.len();
+        let json = serde_json::to_string_pretty(&books)?;
+        fs::write(path, json)?;
+        Ok(count)
+    }
+
+    pub fn import_from_json(&self, path: &Path) -> Result<ImportSummary, LibraryError> {
+        let content = fs::read_to_string(path)?;
+        let books: Vec<BookDraft> = serde_json::from_str(&content)?;
+
+        let mut summary = ImportSummary::default();
+        for draft in books {
+            if self.db.book_exists(&draft.title, &draft.author)? {
+                summary.skipped_duplicates += 1;
+                continue;
+            }
+
+            let _ = self.db.add_book(&draft)?;
+            summary.imported += 1;
+        }
+
+        Ok(summary)
     }
 }

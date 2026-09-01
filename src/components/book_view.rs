@@ -54,7 +54,7 @@ impl Component for BookViewModal {
         adw::Window {
             set_title: Some(&model.book.title),
             set_modal: true,
-            set_default_size: (520, 640),
+            set_default_size: (820, 680),
 
             connect_close_request[sender] => move |_| {
                 sender.input(BookViewInput::Cancel);
@@ -87,80 +87,87 @@ impl Component for BookViewModal {
                     },
                 },
 
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 12,
-                    set_margin_all: 12,
+                gtk::ScrolledWindow {
+                    set_vexpand: true,
 
                     gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 12,
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 16,
+                        set_margin_all: 16,
 
                         gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_valign: gtk::Align::Start,
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 16,
 
-                            gtk::Picture {
-                                set_filename: covers::existing_cover(model.book.id),
-                                set_content_fit: gtk::ContentFit::Contain,
-                                set_size_request: (140, 210),
-                            },
-                        },
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_valign: gtk::Align::Start,
+                                add_css_class: "card",
+                                set_margin_bottom: 4,
 
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_spacing: 10,
-                            set_hexpand: true,
-
-                            adw::PreferencesGroup {
-                                set_title: "Book details",
-
-                                #[local_ref]
-                                title_entry -> adw::EntryRow {
-                                    set_title: "Title",
-                                },
-                                #[local_ref]
-                                author_entry -> adw::EntryRow {
-                                    set_title: "Author",
-                                },
-                                #[local_ref]
-                                cover_entry -> adw::EntryRow {
-                                    set_title: "Cover image URL",
+                                gtk::Picture {
+                                    set_filename: covers::existing_cover(model.book.id),
+                                    set_content_fit: gtk::ContentFit::Contain,
+                                    set_size_request: (320, 460),
                                 },
                             },
 
-                            adw::PreferencesGroup {
-                                set_title: "Reading status",
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 12,
+                                set_hexpand: true,
 
-                                #[local_ref]
-                                read_by_nika_switch -> adw::SwitchRow {
-                                    set_title: "Read by Nika",
+                                adw::PreferencesGroup {
+                                    set_title: "Book details",
+
+                                    #[local_ref]
+                                    title_entry -> adw::EntryRow {
+                                        set_title: "Title",
+                                    },
+                                    #[local_ref]
+                                    author_entry -> adw::EntryRow {
+                                        set_title: "Author",
+                                    },
+                                    #[local_ref]
+                                    cover_entry -> adw::EntryRow {
+                                        set_title: "Cover image URL",
+                                    },
                                 },
-                                #[local_ref]
-                                read_by_petya_switch -> adw::SwitchRow {
-                                    set_title: "Read by Petya",
+
+                                adw::PreferencesGroup {
+                                    set_title: "Reading status",
+
+                                    #[local_ref]
+                                    read_by_nika_switch -> adw::SwitchRow {
+                                        set_title: "Read by Nika",
+                                    },
+                                    #[local_ref]
+                                    read_by_petya_switch -> adw::SwitchRow {
+                                        set_title: "Read by Petya",
+                                    },
+                                },
+
+                                gtk::Label {
+                                    set_label: "Description",
+                                    set_xalign: 0.0,
+                                    add_css_class: "heading",
+                                },
+
+                                gtk::ScrolledWindow {
+                                    set_min_content_height: 180,
+                                    set_vexpand: true,
+                                    add_css_class: "card",
+
+                                    #[local_ref]
+                                    description_view -> gtk::TextView {
+                                        set_wrap_mode: gtk::WrapMode::WordChar,
+                                        set_top_margin: 8,
+                                        set_bottom_margin: 8,
+                                        set_left_margin: 8,
+                                        set_right_margin: 8,
+                                    },
                                 },
                             },
-                        },
-                    },
-
-                    gtk::Label {
-                        set_label: "Description",
-                        set_xalign: 0.0,
-                        add_css_class: "heading",
-                    },
-
-                    gtk::ScrolledWindow {
-                        set_vexpand: true,
-                        add_css_class: "card",
-
-                        #[local_ref]
-                        description_view -> gtk::TextView {
-                            set_wrap_mode: gtk::WrapMode::WordChar,
-                            set_top_margin: 8,
-                            set_bottom_margin: 8,
-                            set_left_margin: 8,
-                            set_right_margin: 8,
                         },
                     },
                 },

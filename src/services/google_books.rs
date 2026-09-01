@@ -60,6 +60,10 @@ struct GoogleVolumeInfo {
 
 #[derive(Deserialize, Debug)]
 struct GoogleImageLinks {
+    extra_large: Option<String>,
+    large: Option<String>,
+    medium: Option<String>,
+    small: Option<String>,
     thumbnail: Option<String>,
     #[serde(rename = "smallThumbnail")]
     small_thumbnail: Option<String>,
@@ -127,8 +131,19 @@ fn volume_to_draft(info: GoogleVolumeInfo) -> BookDraft {
     let description = info.description.unwrap_or_default();
     let cover_url = info
         .image_links
-        .and_then(|img| img.thumbnail.or(img.small_thumbnail))
-        .map(|url| url.replace("http://", "https://"))
+        .and_then(|img| {
+            img.extra_large
+                .or(img.large)
+                .or(img.medium)
+                .or(img.small)
+                .or(img.thumbnail)
+                .or(img.small_thumbnail)
+        })
+        .map(|url| {
+            // Replace edge=curl and zoom levels for higher resolution images
+            let secure = url.replace("http://", "https://");
+            secure.replace("edge=curl&", "").replace("zoom=1", "zoom=0")
+        })
         .unwrap_or_default();
 
     BookDraft {
