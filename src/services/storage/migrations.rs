@@ -7,10 +7,11 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    description: "create books table",
-    sql: "CREATE TABLE IF NOT EXISTS  books (
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        description: "create books table",
+        sql: "CREATE TABLE IF NOT EXISTS  books (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 author TEXT NOT NULL,
@@ -19,7 +20,13 @@ const MIGRATIONS: &[Migration] = &[Migration {
                 read_by_nika BOOLEAN NOT NULL DEFAULT 0,
                 read_by_petya BOOLEAN NOT NULL DEFAULT 0
             );",
-}];
+    },
+    Migration {
+        version: 2,
+        description: "add location column to books",
+        sql: "ALTER TABLE books ADD COLUMN location TEXT NOT NULL DEFAULT 'home';",
+    },
+];
 
 pub(super) fn migrate(conn: &mut Connection) -> Result<()> {
     conn.execute(
@@ -61,17 +68,15 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
 
-        // Verify _schema_migrations table has recorded version 1
-        let applied_version: u32 = conn
-            .query_row(
-                "SELECT version FROM _schema_migrations WHERE version = 1",
-                [],
-                |row| row.get(0),
-            )
+        // Verify _schema_migrations table has recorded versions 1 and 2
+        let applied_count: u32 = conn
+            .query_row("SELECT COUNT(*) FROM _schema_migrations", [], |row| {
+                row.get(0)
+            })
             .unwrap();
-        assert_eq!(applied_version, 1);
+        assert_eq!(applied_count, 2);
 
-        // Verify books table structure
+        // Verify books table structure includes location
         {
             let mut stmt = conn.prepare("PRAGMA table_info(books)").unwrap();
             let columns: Vec<String> = stmt
@@ -87,6 +92,7 @@ mod tests {
             assert!(columns.contains(&"cover_url".to_string()));
             assert!(columns.contains(&"read_by_nika".to_string()));
             assert!(columns.contains(&"read_by_petya".to_string()));
+            assert!(columns.contains(&"location".to_string()));
         }
 
         // Running migrate again should be an idempotent no-op and succeed

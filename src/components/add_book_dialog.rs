@@ -3,7 +3,7 @@ use relm4::prelude::*;
 use relm4::{adw, gtk};
 
 use super::{clean_entry, clean_text, pick_image_file, texture_from_bytes};
-use crate::models::BookDraft;
+use crate::models::{BookDraft, BookLocation};
 use crate::services::covers::{fetch_and_resize, process_image_bytes};
 use crate::services::google_books::search_google_books;
 use crate::services::openlibrary::search_openlibrary;
@@ -249,7 +249,7 @@ impl Component for AddBookDialog {
                                     },
 
                                     adw::PreferencesGroup {
-                                        set_title: "Reading status",
+                                        set_title: "Status & Location",
 
                                         #[name = "read_by_nika_switch"]
                                         adw::SwitchRow {
@@ -259,6 +259,13 @@ impl Component for AddBookDialog {
                                         #[name = "read_by_petya_switch"]
                                         adw::SwitchRow {
                                             set_title: "Read by Petya",
+                                        },
+
+                                        #[name = "location_row"]
+                                        adw::ComboRow {
+                                            set_title: "Location",
+                                            set_model: Some(&gtk::StringList::new(&["Home", "Borrowed", "Dacha"])),
+                                            set_selected: BookLocation::default().to_index(),
                                         },
                                     },
 
@@ -408,6 +415,7 @@ impl Component for AddBookDialog {
                     },
                     read_by_nika: widgets.read_by_nika_switch.is_active(),
                     read_by_petya: widgets.read_by_petya_switch.is_active(),
+                    location: BookLocation::from_index(widgets.location_row.selected()),
                 };
 
                 widgets.title_entry.remove_css_class("error");
@@ -506,6 +514,9 @@ fn clear_form(
     widgets.cover_entry.set_text("");
     widgets.read_by_nika_switch.set_active(false);
     widgets.read_by_petya_switch.set_active(false);
+    widgets
+        .location_row
+        .set_selected(BookLocation::default().to_index());
     widgets.description_view.buffer().set_text("");
     widgets.search_entry.set_text("");
     clear_results_ui(results, widgets);

@@ -47,7 +47,7 @@ impl Db {
     pub fn books(&self) -> Result<Vec<Book>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, author, description, cover_url, read_by_nika, read_by_petya FROM books ORDER BY id DESC",
+            "SELECT id, title, author, description, cover_url, read_by_nika, read_by_petya, location FROM books ORDER BY id DESC",
         )?;
 
         let books_iter = stmt.query_map([], |row| {
@@ -59,6 +59,7 @@ impl Db {
                 cover_url: row.get(4)?,
                 read_by_nika: row.get(5)?,
                 read_by_petya: row.get(6)?,
+                location: row.get(7)?,
             })
         })?;
 
@@ -90,7 +91,7 @@ impl Db {
     pub fn add_book(&self, draft: &BookDraft) -> Result<i64> {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO books (title, author, description, cover_url, read_by_nika, read_by_petya) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO books (title, author, description, cover_url, read_by_nika, read_by_petya, location) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 draft.title,
                 draft.author,
@@ -98,6 +99,7 @@ impl Db {
                 draft.cover_url,
                 draft.read_by_nika,
                 draft.read_by_petya,
+                draft.location,
             ],
         )?;
 
@@ -106,7 +108,7 @@ impl Db {
 
     pub fn update_book(&self, book: &Book) -> Result<()> {
         self.conn().execute(
-            "UPDATE books SET title = ?1, author = ?2, description = ?3, cover_url = ?4, read_by_nika = ?5, read_by_petya = ?6 WHERE id = ?7",
+            "UPDATE books SET title = ?1, author = ?2, description = ?3, cover_url = ?4, read_by_nika = ?5, read_by_petya = ?6, location = ?7 WHERE id = ?8",
             params![
                 book.title,
                 book.author,
@@ -114,6 +116,7 @@ impl Db {
                 book.cover_url,
                 book.read_by_nika,
                 book.read_by_petya,
+                book.location,
                 book.id,
             ],
         )?;

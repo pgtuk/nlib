@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::models::BookDraft;
+use crate::models::{BookDraft, BookLocation};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -154,5 +154,6 @@ fn volume_to_draft(info: GoogleVolumeInfo) -> BookDraft {
         cover_bytes: None,
         read_by_nika: false,
         read_by_petya: false,
+        location: BookLocation::default(),
     }
 }

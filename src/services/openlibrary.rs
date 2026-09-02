@@ -1,28 +1,28 @@
+use reqwest::Client;
 use serde::Deserialize;
+use std::sync::LazyLock;
+use thiserror::Error;
 
-use crate::models::BookDraft;
+use crate::models::{BookDraft, BookLocation};
+
+static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .user_agent("nlib/0.1.0")
+        .build()
+        .unwrap_or_default()
+});
+
+#[derive(Error, Debug)]
+pub enum OpenLibraryError {
+    #[error("HTTP error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("API error: {0}")]
+    Api(String),
+}
 
 #[derive(Deserialize, Debug)]
 struct OpenLibrarySearchResponse {
     docs: Vec<OpenLibraryDoc>,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(untagged)]
-enum FirstSentence {
-    Text(String),
-    Array(Vec<String>),
-    Object { value: String },
-}
-
-impl FirstSentence {
-    fn into_string(self) -> String {
-        match self {
-            Self::Text(s) => s,
-            Self::Array(arr) => arr.into_iter().next().unwrap_or_default(),
-            Self::Object { value } => value,
-        }
-    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -35,26 +35,48 @@ struct OpenLibraryDoc {
     first_sentence: Option<FirstSentence>,
 }
 
-pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, reqwest::Error> {
-    let client = reqwest::Client::builder()
-        .user_agent("nlib/0.1.0")
-        .build()?;
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum FirstSentence {
+    Single(String),
+    Multiple(Vec<String>),
+    Object { value: String },
+}
 
-    let response: OpenLibrarySearchResponse = client
-        .get("https://openlibrary.org/search.json")
+impl FirstSentence {
+    fn into_string(self) -> String {
+        match self {
+            Self::Single(s) => s,
+            Self::Multiple(mut v) => v.drain(..).next().unwrap_or_default(),
+            Self::Object { value } => value,
+        }
+    }
+}
+
+pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, OpenLibraryError> {
+    let url = "https://openlibrary.org/search.json";
+    let resp = HTTP_CLIENT
+        .get(url)
         .query(&[("q", query), ("limit", "5")])
         .send()
-        .await?
-        .json()
         .await?;
 
-    let books = response
+    if !resp.status().is_success() {
+        return Err(OpenLibraryError::Api(format!(
+            "OpenLibrary request failed: {}",
+            resp.status()
+        )));
+    }
+
+    let parsed: OpenLibrarySearchResponse = resp.json().await?;
+
+    let books = parsed
         .docs
         .into_iter()
         .map(|doc| {
             let author = doc
                 .author_name
-                .map(|a| a.join(", "))
+                .map(|authors| authors.join(", "))
                 .unwrap_or_else(|| "Unknown".to_string());
 
             let cover_url = if let Some(id) = doc.cover_i {
@@ -80,6 +102,7 @@ pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, reqwest::
                 cover_bytes: None,
                 read_by_nika: false,
                 read_by_petya: false,
+                location: BookLocation::default(),
             }
         })
         .collect();

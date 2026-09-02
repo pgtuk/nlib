@@ -68,7 +68,6 @@ impl FactoryComponent for BookCard {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 6,
-                    set_visible: self.book.read_by_nika || self.book.read_by_petya,
 
                     gtk::Label {
                         set_label: "Nika",
@@ -80,6 +79,13 @@ impl FactoryComponent for BookCard {
                         set_label: "Petya",
                         add_css_class: "badge-petya",
                         set_visible: self.book.read_by_petya,
+                    },
+
+                    gtk::Label {
+                        set_label: self.book.location.label(),
+                        add_css_class: self.book.location.badge_class(),
+                        set_halign: gtk::Align::End,
+                        set_hexpand: true,
                     },
                 },
             }
