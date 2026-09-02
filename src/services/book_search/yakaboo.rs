@@ -1,3 +1,4 @@
+// trully a product of gemini
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -34,6 +35,18 @@ fn extract_between<'a>(src: &'a str, start: &str, end: &str) -> Option<&'a str> 
     Some(&src[s_idx..s_idx + e_idx])
 }
 
+fn extract_url_from_style(chunk: &str) -> Option<String> {
+    let url_start = chunk.find("url(")? + 4;
+    let url_end = chunk[url_start..].find(')')?;
+    let raw =
+        chunk[url_start..url_start + url_end].trim_matches(|c| c == '\'' || c == '"' || c == ' ');
+    if !raw.ends_with(".svg") && !raw.contains("placeholder") && raw.starts_with("http") {
+        Some(raw.to_string())
+    } else {
+        None
+    }
+}
+
 fn strip_tags(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut in_tag = false;
@@ -48,46 +61,94 @@ fn strip_tags(src: &str) -> String {
     out.trim().to_string()
 }
 
+fn is_image_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".png")
+        || lower.ends_with(".webp")
+}
+
+fn safe_slice(s: &str, mut start: usize, mut end: usize) -> &str {
+    start = start.min(s.len());
+    end = end.min(s.len());
+    while start > 0 && !s.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end < s.len() && !s.is_char_boundary(end) {
+        end += 1;
+    }
+    if start <= end {
+        &s[start..end]
+    } else {
+        ""
+    }
+}
+
 fn extract_images_map(html: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let pattern = "\"url_path\":\"";
-    let mut cursor = 0;
-    while let Some(pos) = html[cursor..].find(pattern) {
-        let start = cursor + pos + pattern.len();
-        let Some(path_end) = html[start..].find('"') else {
-            break;
-        };
-        let url_path = &html[start..start + path_end];
-        cursor = start + path_end;
 
-        let end_idx = html[cursor..]
-            .char_indices()
-            .nth(300)
-            .map(|(i, _)| cursor + i)
-            .unwrap_or(html.len());
-        let lookahead = &html[cursor..end_idx];
+    for pattern in &["\"image\":\"", "\"small_image\":\""] {
+        let mut cursor = 0;
+        while let Some(pos) = html[cursor..].find(pattern) {
+            let start = cursor + pos + pattern.len();
+            let Some(img_end) = html[start..].find('"') else {
+                break;
+            };
+            let raw_img = &html[start..start + img_end];
+            cursor = start + img_end;
 
-        let img_marker = "\"image\":\"";
-        if let Some(img_pos) = lookahead.find(img_marker) {
-            let img_start = img_pos + img_marker.len();
-            if let Some(img_end) = lookahead[img_start..].find('"') {
-                let raw_img = &lookahead[img_start..img_start + img_end];
-                let cleaned_img = raw_img
-                    .replace(r"\u002F", "/")
-                    .replace(r"\/", "/")
-                    .replace('\\', "");
-                let path_slug = if !cleaned_img.starts_with('/') {
-                    format!("/{cleaned_img}")
-                } else {
-                    cleaned_img
-                };
-                let full_url = format!(
-                    "https://static.yakaboo.ua/media/cloudflare/product/webp/352x340{path_slug}"
-                );
-                map.insert(url_path.to_string(), full_url);
+            if !is_image_path(raw_img) {
+                continue;
+            }
+
+            let cleaned_img = raw_img
+                .replace(r"\u002F", "/")
+                .replace(r"\/", "/")
+                .replace('\\', "");
+
+            let path_slug = if !cleaned_img.starts_with('/') {
+                format!("/{cleaned_img}")
+            } else {
+                cleaned_img
+            };
+
+            let full_url = format!(
+                "https://static.yakaboo.ua/media/cloudflare/product/webp/352x340{path_slug}"
+            );
+
+            // Fast O(1) sliding window slice around image (+/- 600 bytes)
+            let w_start = start.saturating_sub(600);
+            let w_end = start + 600;
+            let window = safe_slice(html, w_start, w_end);
+
+            for key in &["\"url_path\":\"", "\"url_key\":\"", "\"slug\":\""] {
+                let mut k_cursor = 0;
+                while let Some(kp) = window[k_cursor..].find(key) {
+                    let vs = k_cursor + kp + key.len();
+                    let Some(ve) = window[vs..].find('"') else {
+                        break;
+                    };
+                    let val = &window[vs..vs + ve];
+                    let slug = if val.ends_with(".html") {
+                        val.to_string()
+                    } else {
+                        format!("{val}.html")
+                    };
+                    map.insert(slug, full_url.clone());
+                    k_cursor = vs + ve;
+                }
+            }
+
+            if let Some(sku) = extract_between(window, "\"sku\":\"", "\"") {
+                map.insert(sku.to_string(), full_url.clone());
+            }
+            if let Some(parent_sku) = extract_between(window, "\"parentSku\":\"", "\"") {
+                map.insert(parent_sku.to_string(), full_url);
             }
         }
     }
+
     map
 }
 
@@ -95,7 +156,7 @@ fn parse_yakaboo_search_results(html_content: &str) -> Vec<BookDraft> {
     let images_map = extract_images_map(html_content);
     let mut results = Vec::new();
 
-    // Skip the first chunk (which contains the site header and CSS styles before the first card)
+    // Skip chunk 0 which contains page header and CSS styles
     for chunk in html_content.split("class=\"category-card").skip(1) {
         // Extract title
         let Some(title_raw) = extract_between(chunk, "category-card__name", "</a>") else {
@@ -116,12 +177,35 @@ fn parse_yakaboo_search_results(html_content: &str) -> Vec<BookDraft> {
             .map(strip_tags)
             .unwrap_or_default();
 
-        // Extract slug and look up cover URL
+        // Extract slug
         let slug = extract_between(chunk, "href=\"/ua/", "\"")
             .or_else(|| extract_between(chunk, "href=\"", "\"").map(|h| h.trim_start_matches('/')))
             .unwrap_or_default();
 
-        let cover_url = images_map.get(slug).cloned().unwrap_or_default();
+        let id = extract_between(chunk, "id=\"", "\"").unwrap_or_default();
+
+        // Check 1. Direct inline CSS background-image style (used for digital/downloadable products)
+        // Check 2. JSON images map by slug or ID/SKU
+        // Check 3. data-src or src attribute on product image
+        let cover_url = extract_url_from_style(chunk)
+            .or_else(|| images_map.get(slug).cloned())
+            .or_else(|| {
+                if !id.is_empty() {
+                    images_map.get(id).cloned()
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                extract_between(chunk, "data-src=\"", "\"").and_then(|src| {
+                    if src.starts_with("http") && !src.contains("placeholder") {
+                        Some(src.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_default();
 
         let mut draft = BookDraft::new(title, author);
         if !cover_url.is_empty() {

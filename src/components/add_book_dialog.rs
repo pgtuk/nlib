@@ -553,6 +553,8 @@ fn clear_form(
     cover_bytes: &mut Vec<u8>,
     widgets: &mut AddBookDialogWidgets,
 ) {
+    widgets.search_button.set_sensitive(true);
+    widgets.search_button.set_label("Search");
     widgets.title_entry.set_text("");
     widgets.author_entry.set_text("");
     widgets.cover_entry.set_text("");
