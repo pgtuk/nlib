@@ -2,9 +2,18 @@ use serde::Deserialize;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::sync::LazyLock;
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const GITHUB_REPO: &str = "pgtuk/nlib";
+
+static GITHUB_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
+    std::env::var("GITHUB_TOKEN")
+        .ok()
+        .or_else(|| option_env!("GITHUB_TOKEN").map(str::to_string))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+});
 
 #[derive(Debug, Clone)]
 pub struct ReleaseInfo {
@@ -23,6 +32,7 @@ struct GithubRelease {
 #[derive(Deserialize, Debug)]
 struct GithubAsset {
     name: String,
+    url: Option<String>,
     browser_download_url: String,
 }
 
@@ -50,10 +60,16 @@ pub async fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let mut req = client.get(&url);
+
+    if let Some(token) = GITHUB_TOKEN.as_deref() {
+        req = req.bearer_auth(token);
+    }
+
+    let resp = req.send().await.map_err(|e| e.to_string())?;
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        // No releases published yet
+        // No releases published yet or repository not found
         return Ok(None);
     }
 
@@ -78,9 +94,19 @@ pub async fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
         .or_else(|| release.assets.iter().find(|a| a.name.contains("nlib")))
         .ok_or_else(|| "No compatible binary asset found in latest release".to_string())?;
 
+    // For private repositories, the API asset url with octet-stream header is preferred
+    let download_url = if GITHUB_TOKEN.is_some() {
+        asset
+            .url
+            .clone()
+            .unwrap_or_else(|| asset.browser_download_url.clone())
+    } else {
+        asset.browser_download_url.clone()
+    };
+
     Ok(Some(ReleaseInfo {
         version: latest_version,
-        download_url: asset.browser_download_url.clone(),
+        download_url,
         release_notes: release.body,
     }))
 }
@@ -99,8 +125,14 @@ pub async fn apply_update(download_url: &str) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let bytes = client
-        .get(download_url)
+    let mut req = client.get(download_url);
+    if let Some(token) = GITHUB_TOKEN.as_deref() {
+        req = req
+            .bearer_auth(token)
+            .header("Accept", "application/octet-stream");
+    }
+
+    let bytes = req
         .send()
         .await
         .map_err(|e| format!("Download request failed: {e}"))?
