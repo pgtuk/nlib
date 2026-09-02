@@ -406,6 +406,17 @@ impl Component for App {
                                             sender.input(AppAction::CheckForUpdates { manual: true });
                                         },
                                     },
+
+                                    gtk::Separator {
+                                        set_orientation: gtk::Orientation::Horizontal,
+                                    },
+
+                                    gtk::Label {
+                                        set_label: &format!("v{}", updater::CURRENT_VERSION),
+                                        add_css_class: "dim-label",
+                                        add_css_class: "caption",
+                                        set_halign: gtk::Align::Center,
+                                    },
                                 },
                             },
                         },
