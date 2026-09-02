@@ -8,10 +8,10 @@ edition = "2021"
 relm4 = { version = "0.11", features = ["libadwaita", "gnome_50"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0" }
+serde_json = "1.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
-directories = { version = "5.0" }
-thiserror = { version = "2.0" }
+directories = "5.0"
+thiserror = "2.0"
 dotenvy = "0.15"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
