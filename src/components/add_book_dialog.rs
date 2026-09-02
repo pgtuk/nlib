@@ -129,7 +129,7 @@ impl Component for AddBookDialog {
 
                             #[name = "results_scroll"]
                             gtk::ScrolledWindow {
-                                set_min_content_height: 120,
+                                set_min_content_height: 180,
                                 set_visible: false,
 
                                 #[name = "results_list"]
@@ -471,18 +471,31 @@ impl AddBookDialog {
                 .build();
 
             if draft.cover_url.is_empty() {
-                let badge = gtk::Label::builder()
-                    .label("No cover")
+                let placeholder = gtk::Image::builder()
+                    .icon_name("book-symbolic")
+                    .pixel_size(24)
                     .css_classes(["dim-label"])
                     .build();
-                row.add_suffix(&badge);
+                row.add_prefix(&placeholder);
             } else {
-                let badge = gtk::Label::builder()
-                    .label("📷")
-                    .tooltip_text("Cover available")
-                    .css_classes(["dim-label"])
+                let picture = gtk::Picture::builder()
+                    .content_fit(gtk::ContentFit::Cover)
+                    .can_shrink(true)
+                    .width_request(38)
+                    .height_request(54)
+                    .css_classes(["card"])
                     .build();
-                row.add_suffix(&badge);
+                row.add_prefix(&picture);
+
+                let url = draft.cover_url.clone();
+                let pic = picture.clone();
+                relm4::spawn_local(async move {
+                    if let Ok(bytes) = fetch_and_resize(&url).await {
+                        if let Some(texture) = texture_from_bytes(&bytes) {
+                            pic.set_paintable(Some(&texture));
+                        }
+                    }
+                });
             }
 
             row.set_activatable(true);
