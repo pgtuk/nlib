@@ -1,3 +1,5 @@
+mod migrations;
+
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -7,6 +9,7 @@ use rusqlite::{params, Connection};
 use thiserror::Error;
 
 use crate::models::{Book, BookDraft};
+use migrations::migrate;
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -31,28 +34,8 @@ impl Db {
         let db_file_path = get_db_path()?;
         create_dir_all(db_file_path.parent().expect("db path should have parent"))?; // ensure db file path exists
 
-        let conn = Connection::open(db_file_path)?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS  books (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                author TEXT NOT NULL,
-                description TEXT,
-                cover_url TEXT,
-                read_by_nika BOOLEAN NOT NULL DEFAULT 0,
-                read_by_petya BOOLEAN NOT NULL DEFAULT 0
-            )",
-            [],
-        )?;
-
-        let _ = conn.execute(
-            "ALTER TABLE books ADD COLUMN read_by_nika BOOLEAN NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE books ADD COLUMN read_by_petya BOOLEAN NOT NULL DEFAULT 0",
-            [],
-        );
+        let mut conn = Connection::open(db_file_path)?;
+        migrate(&mut conn)?;
 
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
