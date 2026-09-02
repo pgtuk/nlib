@@ -4,15 +4,8 @@ use relm4::{adw, gtk};
 
 use super::{clean_entry, clean_text, pick_image_file, texture_from_bytes};
 use crate::models::{BookDraft, BookLocation};
-use crate::services::book_search::{search_google_books, search_openlibrary};
+use crate::services::book_search::SearchProvider;
 use crate::services::covers::{fetch_and_resize, process_image_bytes};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SearchProvider {
-    #[default]
-    OpenLibrary,
-    GoogleBooks,
-}
 
 #[derive(Debug)]
 pub enum AddBookDialogMsg {
@@ -108,31 +101,10 @@ impl Component for AddBookDialog {
                                         set_xalign: 0.0,
                                     },
 
+                                    #[name = "providers_box"]
                                     gtk::Box {
                                         set_halign: gtk::Align::Start,
                                         add_css_class: "linked",
-
-                                        #[name = "openlibrary_btn"]
-                                        gtk::ToggleButton {
-                                            set_label: "OpenLibrary",
-                                            set_active: true,
-                                            connect_toggled[sender] => move |btn| {
-                                                if btn.is_active() {
-                                                    sender.input(AddBookDialogMsg::SetProvider(SearchProvider::OpenLibrary));
-                                                }
-                                            },
-                                        },
-
-                                        #[name = "google_books_btn"]
-                                        gtk::ToggleButton {
-                                            set_label: "Google Books",
-                                            set_group: Some(&openlibrary_btn),
-                                            connect_toggled[sender] => move |btn| {
-                                                if btn.is_active() {
-                                                    sender.input(AddBookDialogMsg::SetProvider(SearchProvider::GoogleBooks));
-                                                }
-                                            },
-                                        },
                                     },
                                 },
 
@@ -304,6 +276,9 @@ impl Component for AddBookDialog {
     ) -> ComponentParts<Self> {
         let model = AddBookDialog::default();
         let widgets = view_output!();
+
+        setup_provider_buttons(&widgets.providers_box, model.provider, &sender);
+
         ComponentParts { model, widgets }
     }
 
@@ -449,17 +424,9 @@ impl Component for AddBookDialog {
 
                 let provider = self.provider;
                 sender.oneshot_command(async move {
-                    let res = match provider {
-                        SearchProvider::OpenLibrary => {
-                            search_openlibrary(&q).await.map_err(|e| e.to_string())
-                        }
-                        SearchProvider::GoogleBooks => {
-                            search_google_books(&q).await.map_err(|e| e.to_string())
-                        }
-                    };
-                    match res {
+                    match provider.search(&q).await {
                         Ok(books) => DialogCmd::SearchResults(books),
-                        Err(err) => DialogCmd::Error(err),
+                        Err(err) => DialogCmd::Error(err.to_string()),
                     }
                 });
             }
@@ -501,6 +468,36 @@ impl Component for AddBookDialog {
             AddBookDialogMsg::ClearSearchResults => {
                 clear_results_ui(&mut self.results, widgets);
             }
+        }
+    }
+}
+
+fn setup_provider_buttons(
+    providers_box: &gtk::Box,
+    current_provider: SearchProvider,
+    sender: &ComponentSender<AddBookDialog>,
+) {
+    let mut first_btn: Option<gtk::ToggleButton> = None;
+    for &provider in SearchProvider::ALL {
+        let btn = gtk::ToggleButton::builder()
+            .label(provider.name())
+            .active(provider == current_provider)
+            .build();
+
+        if let Some(ref group_leader) = first_btn {
+            btn.set_group(Some(group_leader));
+        }
+
+        let s = sender.clone();
+        btn.connect_toggled(move |b| {
+            if b.is_active() {
+                s.input(AddBookDialogMsg::SetProvider(provider));
+            }
+        });
+
+        providers_box.append(&btn);
+        if first_btn.is_none() {
+            first_btn = Some(btn);
         }
     }
 }

@@ -190,27 +190,7 @@ impl Component for BookViewModal {
         };
 
         let widgets = view_output!();
-
-        widgets.title_entry.set_text(&model.book.title);
-        widgets.author_entry.set_text(&model.book.author);
-        widgets.cover_entry.set_text(&model.book.cover_url);
-        widgets
-            .read_by_nika_switch
-            .set_active(model.book.read_by_nika);
-        widgets
-            .read_by_petya_switch
-            .set_active(model.book.read_by_petya);
-        widgets
-            .location_row
-            .set_selected(model.book.location.to_index());
-        widgets
-            .description_view
-            .buffer()
-            .set_text(&model.book.description);
-
-        if let Some(path) = covers::existing_cover(model.book.id) {
-            widgets.cover_picture.set_filename(Some(path));
-        }
+        populate_widgets(&widgets, &model.book);
 
         ComponentParts { model, widgets }
     }
@@ -323,5 +303,22 @@ impl Component for BookViewModal {
                 root.close();
             }
         }
+    }
+}
+
+fn populate_widgets(widgets: &BookViewModalWidgets, book: &Book) {
+    widgets.title_entry.set_text(&book.title);
+    widgets.author_entry.set_text(&book.author);
+    widgets.cover_entry.set_text(&book.cover_url);
+    widgets.read_by_nika_switch.set_active(book.read_by_nika);
+    widgets.read_by_petya_switch.set_active(book.read_by_petya);
+    widgets.location_row.set_selected(book.location.to_index());
+    widgets
+        .description_view
+        .buffer()
+        .set_text(&book.description);
+
+    if let Some(path) = covers::existing_cover(book.id) {
+        widgets.cover_picture.set_filename(Some(path));
     }
 }

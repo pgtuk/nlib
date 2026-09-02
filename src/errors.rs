@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::services::book_search::{GoogleBooksError, OpenLibraryError};
+use crate::services::book_search::BookSearchError;
 use crate::services::covers::CoverError;
 use crate::services::library::LibraryError;
 
@@ -12,11 +12,8 @@ pub enum AppError {
     #[error("Library error: {0}")]
     Library(#[from] LibraryError),
 
-    #[error("Google Books error: {0}")]
-    GoogleBooks(#[from] GoogleBooksError),
-
-    #[error("OpenLibrary error: {0}")]
-    OpenLibrary(#[from] OpenLibraryError),
+    #[error("Search error: {0}")]
+    Search(#[from] BookSearchError),
 
     #[error("Cover error: {0}")]
     Cover(#[from] CoverError),
