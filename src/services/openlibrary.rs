@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::sync::LazyLock;
 use thiserror::Error;
 
-use crate::models::{BookDraft, BookLocation};
+use crate::models::BookDraft;
 
 static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
@@ -94,16 +94,9 @@ pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, OpenLibra
                 .map(|s| s.into_string())
                 .unwrap_or_default();
 
-            BookDraft {
-                title: doc.title,
-                author,
-                cover_url,
-                description,
-                cover_bytes: None,
-                read_by_nika: false,
-                read_by_petya: false,
-                location: BookLocation::default(),
-            }
+            BookDraft::new(doc.title, author)
+                .with_description(description)
+                .with_cover_url(cover_url)
         })
         .collect();
 

@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::models::{BookDraft, BookLocation};
+use crate::models::BookDraft;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -146,14 +146,7 @@ fn volume_to_draft(info: GoogleVolumeInfo) -> BookDraft {
         })
         .unwrap_or_default();
 
-    BookDraft {
-        title,
-        author,
-        cover_url,
-        description,
-        cover_bytes: None,
-        read_by_nika: false,
-        read_by_petya: false,
-        location: BookLocation::default(),
-    }
+    BookDraft::new(title, author)
+        .with_description(description)
+        .with_cover_url(cover_url)
 }

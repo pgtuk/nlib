@@ -94,6 +94,42 @@ pub struct BookDraft {
     pub location: BookLocation,
 }
 
+impl BookDraft {
+    pub fn new(title: impl Into<String>, author: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            author: author.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+
+    pub fn with_cover_url(mut self, cover_url: impl Into<String>) -> Self {
+        self.cover_url = cover_url.into();
+        self
+    }
+
+    pub fn with_cover_bytes(mut self, cover_bytes: Option<Vec<u8>>) -> Self {
+        self.cover_bytes = cover_bytes;
+        self
+    }
+
+    pub fn with_reading_status(mut self, read_by_nika: bool, read_by_petya: bool) -> Self {
+        self.read_by_nika = read_by_nika;
+        self.read_by_petya = read_by_petya;
+        self
+    }
+
+    pub fn with_location(mut self, location: BookLocation) -> Self {
+        self.location = location;
+        self
+    }
+}
+
 // for object from db
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Book {

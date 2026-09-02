@@ -403,20 +403,22 @@ impl Component for AddBookDialog {
 
             AddBookDialogMsg::Save => {
                 let mut has_error = false;
-                let draft = BookDraft {
-                    title: clean_entry(&widgets.title_entry),
-                    author: clean_entry(&widgets.author_entry),
-                    description: clean_text(&widgets.description_view),
-                    cover_url: clean_entry(&widgets.cover_entry),
-                    cover_bytes: if self.cover_bytes.is_empty() {
-                        None
-                    } else {
-                        Some(self.cover_bytes.clone())
-                    },
-                    read_by_nika: widgets.read_by_nika_switch.is_active(),
-                    read_by_petya: widgets.read_by_petya_switch.is_active(),
-                    location: BookLocation::from_index(widgets.location_row.selected()),
-                };
+                let draft = BookDraft::new(
+                    clean_entry(&widgets.title_entry),
+                    clean_entry(&widgets.author_entry),
+                )
+                .with_description(clean_text(&widgets.description_view))
+                .with_cover_url(clean_entry(&widgets.cover_entry))
+                .with_cover_bytes(if self.cover_bytes.is_empty() {
+                    None
+                } else {
+                    Some(self.cover_bytes.clone())
+                })
+                .with_reading_status(
+                    widgets.read_by_nika_switch.is_active(),
+                    widgets.read_by_petya_switch.is_active(),
+                )
+                .with_location(BookLocation::from_index(widgets.location_row.selected()));
 
                 widgets.title_entry.remove_css_class("error");
                 widgets.author_entry.remove_css_class("error");
