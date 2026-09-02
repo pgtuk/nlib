@@ -72,13 +72,30 @@ pub struct App {
     filter: FilterState,
     sort_field: SortField,
     sort_order: SortOrder,
+    total_books: usize,
+    filtered_books: usize,
     add_book_modal: Controller<AddBookDialog>,
     book_view_modal: Option<Controller<BookViewModal>>,
 }
 
 impl App {
+    fn stats_text(&self) -> String {
+        if self.total_books == 0 {
+            "0 books".to_string()
+        } else if self.filtered_books == self.total_books {
+            if self.total_books == 1 {
+                "1 book".to_string()
+            } else {
+                format!("{} books", self.total_books)
+            }
+        } else {
+            format!("{} of {} books", self.filtered_books, self.total_books)
+        }
+    }
+
     fn refresh_grid(&mut self) -> Result<(), AppError> {
         let books = self.library.books()?;
+        self.total_books = books.len();
         let mut filtered: Vec<Book> = books
             .into_iter()
             .filter(|b| {
@@ -87,6 +104,7 @@ impl App {
                         || b.author.to_lowercase().contains(&self.query))
             })
             .collect();
+        self.filtered_books = filtered.len();
 
         // Apply sorting
         filtered.sort_by(|a, b| {
@@ -164,10 +182,24 @@ impl Component for App {
                             set_visible: false,
                         },
 
-                        pack_start = &gtk::Label {
-                            set_label: "📚 Nika's lib",
-                            add_css_class: "heading",
+                        pack_start = &gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_valign: gtk::Align::Center,
                             set_margin_end: 12,
+
+                            gtk::Label {
+                                set_label: "📚 Nika's lib",
+                                add_css_class: "heading",
+                                set_xalign: 0.0,
+                            },
+
+                            gtk::Label {
+                                add_css_class: "dim-label",
+                                add_css_class: "caption",
+                                set_xalign: 0.0,
+                                #[watch]
+                                set_label: &model.stats_text(),
+                            },
                         },
 
                         pack_start = &gtk::Box {
@@ -409,14 +441,16 @@ impl Component for App {
             filter: FilterState::default(),
             sort_field: SortField::default(),
             sort_order: SortOrder::default(),
+            total_books: 0,
+            filtered_books: 0,
             add_book_modal,
             book_view_modal: None,
         };
 
+        let _ = model.refresh_grid();
+
         let books_grid = model.displayed_books.widget();
         let widgets = view_output!();
-
-        model.refresh_grid_or_report(&sender);
 
         ComponentParts { model, widgets }
     }
@@ -458,6 +492,7 @@ impl Component for App {
             AppAction::ShowInfo(msg) => self.handle_show_info(&msg, widgets, &sender),
             AppAction::ShowError(err) => self.handle_show_error(&err, widgets),
         }
+        self.update_view(widgets, sender);
     }
 }
 
