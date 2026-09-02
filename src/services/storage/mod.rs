@@ -131,7 +131,7 @@ impl Db {
 }
 
 fn get_db_path() -> Result<PathBuf> {
-    // should return ~/.local/share/nlib/nlib.sqlite and be distribution agnostic
+    // should return ~/.local/share/nlib/nlib.sqlite and be distro agnostic
     Ok(ProjectDirs::from("", "", "nlib")
         .ok_or(StorageError::NoDataDir)?
         .data_dir()

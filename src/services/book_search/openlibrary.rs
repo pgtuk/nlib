@@ -1,16 +1,8 @@
-use reqwest::Client;
 use serde::Deserialize;
-use std::sync::LazyLock;
 use thiserror::Error;
 
+use super::HTTP_CLIENT;
 use crate::models::BookDraft;
-
-static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(|| {
-    Client::builder()
-        .user_agent("nlib/0.1.0")
-        .build()
-        .unwrap_or_default()
-});
 
 #[derive(Error, Debug)]
 pub enum OpenLibraryError {

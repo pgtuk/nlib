@@ -4,9 +4,8 @@ use relm4::{adw, gtk};
 
 use super::{clean_entry, clean_text, pick_image_file, texture_from_bytes};
 use crate::models::{BookDraft, BookLocation};
+use crate::services::book_search::{search_google_books, search_openlibrary};
 use crate::services::covers::{fetch_and_resize, process_image_bytes};
-use crate::services::google_books::search_google_books;
-use crate::services::openlibrary::search_openlibrary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchProvider {

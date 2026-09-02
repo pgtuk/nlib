@@ -1,8 +1,10 @@
 use std::sync::LazyLock;
 
-use crate::models::BookDraft;
 use serde::Deserialize;
 use thiserror::Error;
+
+use super::HTTP_CLIENT;
+use crate::models::BookDraft;
 
 static API_KEY: LazyLock<Option<String>> = LazyLock::new(|| {
     std::env::var("GOOGLE_BOOKS_API_KEY")
@@ -15,13 +17,6 @@ static API_KEY: LazyLock<Option<String>> = LazyLock::new(|| {
                 .to_string()
         })
         .filter(|k| !k.is_empty())
-});
-
-static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .user_agent("nlib/0.1.0")
-        .build()
-        .unwrap_or_default()
 });
 
 #[derive(Error, Debug)]
