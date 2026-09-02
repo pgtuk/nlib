@@ -220,7 +220,7 @@ impl Component for AddBookDialog {
                                     },
 
                                     adw::PreferencesGroup {
-                                        set_title: "Status & Location",
+                                        set_title: "Status &amp; Location",
 
                                         #[name = "read_by_nika_switch"]
                                         adw::SwitchRow {
@@ -290,56 +290,11 @@ impl Component for AddBookDialog {
         _root: &Self::Root,
     ) {
         match message {
-            DialogCmd::SearchResults(results) => {
-                widgets.search_button.set_sensitive(true);
-                widgets.search_button.set_label("Search");
-
-                clear_results_ui(&mut self.results, widgets);
-                self.results = results;
-
-                for draft in &self.results {
-                    let row = adw::ActionRow::builder()
-                        .title(&draft.title)
-                        .subtitle(&draft.author)
-                        .build();
-
-                    if draft.cover_url.is_empty() {
-                        let badge = gtk::Label::builder()
-                            .label("No cover")
-                            .css_classes(["dim-label"])
-                            .build();
-                        row.add_suffix(&badge);
-                    } else {
-                        let badge = gtk::Label::builder()
-                            .label("📷")
-                            .tooltip_text("Cover available")
-                            .css_classes(["dim-label"])
-                            .build();
-                        row.add_suffix(&badge);
-                    }
-
-                    row.set_activatable(true);
-                    widgets.results_list.append(&row);
-                }
-                widgets.results_scroll.set_visible(!self.results.is_empty());
-            }
-
+            DialogCmd::SearchResults(results) => self.handle_search_results(results, widgets),
             DialogCmd::CoverLoaded(resized) => {
-                set_cover_preview(&mut self.cover_bytes, widgets, resized);
+                set_cover_preview(&mut self.cover_bytes, widgets, resized)
             }
-
-            DialogCmd::Error(e) => {
-                widgets.search_button.set_sensitive(true);
-                widgets.search_button.set_label("Search");
-                show_cover_placeholder(
-                    &mut self.cover_bytes,
-                    widgets,
-                    Some("Failed to load\ncover"),
-                );
-                let toast = adw::Toast::new(&e);
-                toast.set_timeout(5);
-                widgets.toast_overlay.add_toast(toast);
-            }
+            DialogCmd::Error(e) => self.handle_error(e, widgets),
         }
     }
 
@@ -351,124 +306,202 @@ impl Component for AddBookDialog {
         root: &Self::Root,
     ) {
         match message {
-            AddBookDialogMsg::Cancel => {
-                clear_form(&mut self.results, &mut self.cover_bytes, widgets);
-                root.set_visible(false);
-            }
-
-            AddBookDialogMsg::SetProvider(p) => {
-                self.provider = p;
-            }
-
-            AddBookDialogMsg::PickLocalImage => {
-                let sender = sender.clone();
-                pick_image_file(Some(root), move |bytes| {
-                    sender.input(AddBookDialogMsg::LocalImageLoaded(bytes));
-                });
-            }
-
+            AddBookDialogMsg::Cancel => self.handle_cancel(widgets, root),
+            AddBookDialogMsg::SetProvider(p) => self.provider = p,
+            AddBookDialogMsg::PickLocalImage => self.pick_image(root, &sender),
             AddBookDialogMsg::LocalImageLoaded(raw) => {
-                show_cover_loading(widgets, "Processing image…");
-                sender.oneshot_command(async move {
-                    let resized = process_image_bytes(raw).await;
-                    DialogCmd::CoverLoaded(resized)
-                });
+                self.handle_local_image_loaded(raw, widgets, &sender)
             }
-
-            AddBookDialogMsg::Save => {
-                let mut has_error = false;
-                let draft = BookDraft::new(
-                    clean_entry(&widgets.title_entry),
-                    clean_entry(&widgets.author_entry),
-                )
-                .with_description(clean_text(&widgets.description_view))
-                .with_cover_url(clean_entry(&widgets.cover_entry))
-                .with_cover_bytes(if self.cover_bytes.is_empty() {
-                    None
-                } else {
-                    Some(self.cover_bytes.clone())
-                })
-                .with_reading_status(
-                    widgets.read_by_nika_switch.is_active(),
-                    widgets.read_by_petya_switch.is_active(),
-                )
-                .with_location(BookLocation::from_index(widgets.location_row.selected()));
-
-                widgets.title_entry.remove_css_class("error");
-                widgets.author_entry.remove_css_class("error");
-
-                if draft.title.is_empty() {
-                    widgets.title_entry.add_css_class("error");
-                    has_error = true;
-                }
-                if draft.author.is_empty() {
-                    widgets.author_entry.add_css_class("error");
-                    has_error = true;
-                }
-                if has_error {
-                    return;
-                }
-
-                let _ = sender.output(AddBookDialogOutput::Save(draft));
-                clear_form(&mut self.results, &mut self.cover_bytes, widgets);
-                root.set_visible(false);
-            }
-
-            AddBookDialogMsg::Search => {
-                let q = widgets.search_entry.text().trim().to_string();
-                if q.is_empty() {
-                    return;
-                }
-                widgets.search_button.set_sensitive(false);
-                widgets.search_button.set_label("Searching...");
-
-                let provider = self.provider;
-                sender.oneshot_command(async move {
-                    match provider.search(&q).await {
-                        Ok(books) => DialogCmd::SearchResults(books),
-                        Err(err) => DialogCmd::Error(err.to_string()),
-                    }
-                });
-            }
-
-            AddBookDialogMsg::SelectResult(i) => {
-                let Some(d) = self.results.get(i) else {
-                    return;
-                };
-
-                widgets.title_entry.set_text(&d.title);
-                widgets.author_entry.set_text(&d.author);
-                widgets.cover_entry.set_text(&d.cover_url);
-                widgets.description_view.buffer().set_text(&d.description);
-                widgets.results_scroll.set_visible(false);
-
-                // Trigger cover fetch or display "No cover available"
-                sender.input(AddBookDialogMsg::CoverUrlChanged(d.cover_url.clone()));
-            }
-
+            AddBookDialogMsg::Save => self.handle_save(widgets, &sender, root),
+            AddBookDialogMsg::Search => self.handle_search(widgets, &sender),
+            AddBookDialogMsg::SelectResult(i) => self.handle_select_result(i, widgets, &sender),
             AddBookDialogMsg::CoverUrlChanged(url) => {
-                let url = url.trim().to_string();
-                if url.is_empty() {
-                    show_cover_placeholder(
-                        &mut self.cover_bytes,
-                        widgets,
-                        Some("No cover image\navailable"),
-                    );
-                    return;
-                }
-                show_cover_loading(widgets, "Downloading cover…");
-                sender.oneshot_command(async move {
-                    match fetch_and_resize(&url).await {
-                        Ok(resized) => DialogCmd::CoverLoaded(resized),
-                        Err(e) => DialogCmd::Error(format!("Failed to fetch cover: {e}")),
-                    }
-                });
+                self.handle_cover_url_changed(url, widgets, &sender)
+            }
+            AddBookDialogMsg::ClearSearchResults => clear_results_ui(&mut self.results, widgets),
+        }
+    }
+}
+
+impl AddBookDialog {
+    fn handle_cancel(&mut self, widgets: &mut AddBookDialogWidgets, root: &adw::Window) {
+        clear_form(&mut self.results, &mut self.cover_bytes, widgets);
+        root.set_visible(false);
+    }
+
+    fn pick_image(&self, root: &adw::Window, sender: &ComponentSender<Self>) {
+        let sender = sender.clone();
+        pick_image_file(Some(root), move |bytes| {
+            sender.input(AddBookDialogMsg::LocalImageLoaded(bytes));
+        });
+    }
+
+    fn handle_local_image_loaded(
+        &self,
+        raw: Vec<u8>,
+        widgets: &mut AddBookDialogWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        show_cover_loading(widgets, "Processing image…");
+        sender.oneshot_command(async move {
+            let resized = process_image_bytes(raw).await;
+            DialogCmd::CoverLoaded(resized)
+        });
+    }
+
+    fn handle_save(
+        &mut self,
+        widgets: &mut AddBookDialogWidgets,
+        sender: &ComponentSender<Self>,
+        root: &adw::Window,
+    ) {
+        let mut has_error = false;
+        let draft = BookDraft::new(
+            clean_entry(&widgets.title_entry),
+            clean_entry(&widgets.author_entry),
+        )
+        .with_description(clean_text(&widgets.description_view))
+        .with_cover_url(clean_entry(&widgets.cover_entry))
+        .with_cover_bytes(if self.cover_bytes.is_empty() {
+            None
+        } else {
+            Some(self.cover_bytes.clone())
+        })
+        .with_reading_status(
+            widgets.read_by_nika_switch.is_active(),
+            widgets.read_by_petya_switch.is_active(),
+        )
+        .with_location(BookLocation::from_index(widgets.location_row.selected()));
+
+        widgets.title_entry.remove_css_class("error");
+        widgets.author_entry.remove_css_class("error");
+
+        if draft.title.is_empty() {
+            widgets.title_entry.add_css_class("error");
+            has_error = true;
+        }
+        if draft.author.is_empty() {
+            widgets.author_entry.add_css_class("error");
+            has_error = true;
+        }
+        if has_error {
+            return;
+        }
+
+        let _ = sender.output(AddBookDialogOutput::Save(draft));
+        clear_form(&mut self.results, &mut self.cover_bytes, widgets);
+        root.set_visible(false);
+    }
+
+    fn handle_search(&self, widgets: &mut AddBookDialogWidgets, sender: &ComponentSender<Self>) {
+        let q = widgets.search_entry.text().trim().to_string();
+        if q.is_empty() {
+            return;
+        }
+        widgets.search_button.set_sensitive(false);
+        widgets.search_button.set_label("Searching...");
+
+        let provider = self.provider;
+        sender.oneshot_command(async move {
+            match provider.search(&q).await {
+                Ok(books) => DialogCmd::SearchResults(books),
+                Err(err) => DialogCmd::Error(err.to_string()),
+            }
+        });
+    }
+
+    fn handle_select_result(
+        &self,
+        index: usize,
+        widgets: &mut AddBookDialogWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        let Some(d) = self.results.get(index) else {
+            return;
+        };
+
+        widgets.title_entry.set_text(&d.title);
+        widgets.author_entry.set_text(&d.author);
+        widgets.cover_entry.set_text(&d.cover_url);
+        widgets.description_view.buffer().set_text(&d.description);
+        widgets.results_scroll.set_visible(false);
+
+        sender.input(AddBookDialogMsg::CoverUrlChanged(d.cover_url.clone()));
+    }
+
+    fn handle_cover_url_changed(
+        &mut self,
+        url: String,
+        widgets: &mut AddBookDialogWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        let url = url.trim().to_string();
+        if url.is_empty() {
+            show_cover_placeholder(
+                &mut self.cover_bytes,
+                widgets,
+                Some("No cover image\navailable"),
+            );
+            return;
+        }
+        show_cover_loading(widgets, "Downloading cover…");
+        sender.oneshot_command(async move {
+            match fetch_and_resize(&url).await {
+                Ok(resized) => DialogCmd::CoverLoaded(resized),
+                Err(e) => DialogCmd::Error(format!("Failed to fetch cover: {e}")),
+            }
+        });
+    }
+
+    fn handle_search_results(
+        &mut self,
+        results: Vec<BookDraft>,
+        widgets: &mut AddBookDialogWidgets,
+    ) {
+        widgets.search_button.set_sensitive(true);
+        widgets.search_button.set_label("Search");
+
+        clear_results_ui(&mut self.results, widgets);
+        self.results = results;
+
+        for draft in &self.results {
+            let row = adw::ActionRow::builder()
+                .title(&draft.title)
+                .subtitle(&draft.author)
+                .build();
+
+            if draft.cover_url.is_empty() {
+                let badge = gtk::Label::builder()
+                    .label("No cover")
+                    .css_classes(["dim-label"])
+                    .build();
+                row.add_suffix(&badge);
+            } else {
+                let badge = gtk::Label::builder()
+                    .label("📷")
+                    .tooltip_text("Cover available")
+                    .css_classes(["dim-label"])
+                    .build();
+                row.add_suffix(&badge);
             }
 
-            AddBookDialogMsg::ClearSearchResults => {
-                clear_results_ui(&mut self.results, widgets);
-            }
+            row.set_activatable(true);
+            widgets.results_list.append(&row);
         }
+        widgets.results_scroll.set_visible(!self.results.is_empty());
+    }
+
+    fn handle_error(&mut self, err: String, widgets: &mut AddBookDialogWidgets) {
+        widgets.search_button.set_sensitive(true);
+        widgets.search_button.set_label("Search");
+        show_cover_placeholder(
+            &mut self.cover_bytes,
+            widgets,
+            Some("Failed to load\ncover"),
+        );
+        let toast = adw::Toast::new(&err);
+        toast.set_timeout(5);
+        widgets.toast_overlay.add_toast(toast);
     }
 }
 

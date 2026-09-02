@@ -17,6 +17,7 @@ pub enum BookViewInput {
     Cancel,
     PickLocalImage,
     LocalImageLoaded(Vec<u8>),
+    CoverProcessed(Vec<u8>),
     DeleteRequested,
     DeleteConfirmed,
 }
@@ -27,17 +28,12 @@ pub enum BookViewOutput {
     Delete(i64),
 }
 
-#[derive(Debug)]
-pub enum BookViewCmd {
-    CoverProcessed(Vec<u8>),
-}
-
 #[relm4::component(pub)]
 impl Component for BookViewModal {
     type Init = Book;
     type Input = BookViewInput;
     type Output = BookViewOutput;
-    type CommandOutput = BookViewCmd;
+    type CommandOutput = ();
 
     view! {
         adw::Window {
@@ -132,7 +128,7 @@ impl Component for BookViewModal {
                                 },
 
                                 adw::PreferencesGroup {
-                                    set_title: "Status & Location",
+                                    set_title: "Status &amp; Location",
 
                                     #[name = "read_by_nika_switch"]
                                     adw::SwitchRow {
@@ -195,23 +191,6 @@ impl Component for BookViewModal {
         ComponentParts { model, widgets }
     }
 
-    fn update_cmd_with_view(
-        &mut self,
-        widgets: &mut Self::Widgets,
-        message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
-        match message {
-            BookViewCmd::CoverProcessed(resized) => {
-                if let Some(tex) = texture_from_bytes(&resized) {
-                    widgets.cover_picture.set_paintable(Some(&tex));
-                    self.pending_cover_bytes = Some(resized);
-                }
-            }
-        }
-    }
-
     fn update_with_view(
         &mut self,
         widgets: &mut Self::Widgets,
@@ -220,89 +199,108 @@ impl Component for BookViewModal {
         root: &Self::Root,
     ) {
         match msg {
-            BookViewInput::Cancel => {
-                root.close();
-            }
-
-            BookViewInput::PickLocalImage => {
-                let sender = sender.clone();
-                pick_image_file(Some(root), move |bytes| {
-                    sender.input(BookViewInput::LocalImageLoaded(bytes));
-                });
-            }
-
-            BookViewInput::LocalImageLoaded(raw) => {
-                sender.oneshot_command(async move {
-                    let resized = process_image_bytes(raw).await;
-                    BookViewCmd::CoverProcessed(resized)
-                });
-            }
-
-            BookViewInput::Save => {
-                let mut has_error = false;
-                let updated = Book {
-                    id: self.book.id,
-                    title: clean_entry(&widgets.title_entry),
-                    author: clean_entry(&widgets.author_entry),
-                    description: clean_text(&widgets.description_view),
-                    cover_url: clean_entry(&widgets.cover_entry),
-                    read_by_nika: widgets.read_by_nika_switch.is_active(),
-                    read_by_petya: widgets.read_by_petya_switch.is_active(),
-                    location: BookLocation::from_index(widgets.location_row.selected()),
-                };
-
-                widgets.title_entry.remove_css_class("error");
-                widgets.author_entry.remove_css_class("error");
-
-                if updated.title.is_empty() {
-                    widgets.title_entry.add_css_class("error");
-                    has_error = true;
-                }
-                if updated.author.is_empty() {
-                    widgets.author_entry.add_css_class("error");
-                    has_error = true;
-                }
-                if has_error {
-                    return;
-                }
-
-                if let Some(bytes) = self.pending_cover_bytes.take() {
-                    let _ = covers::save_cover_bytes(updated.id, &bytes);
-                }
-
-                let _ = sender.output(BookViewOutput::Save(updated));
-                root.close();
-            }
-
-            BookViewInput::DeleteRequested => {
-                let dialog = adw::AlertDialog::new(
-                    Some("Delete this book?"),
-                    Some(&format!(
-                        "“{}” will be removed permanently.",
-                        self.book.title
-                    )),
-                );
-                dialog.add_response("cancel", "Cancel");
-                dialog.add_response("delete", "Delete");
-                dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
-                dialog.set_close_response("cancel");
-                dialog.set_default_response(Some("cancel"));
-
-                let sender = sender.clone();
-                dialog.connect_response(None, move |_, response| {
-                    if response == "delete" {
-                        sender.input(BookViewInput::DeleteConfirmed);
-                    }
-                });
-
-                dialog.present(Some(root));
-            }
-
-            BookViewInput::DeleteConfirmed => {
-                let _ = sender.output(BookViewOutput::Delete(self.book.id));
-                root.close();
-            }
+            BookViewInput::Cancel => root.close(),
+            BookViewInput::PickLocalImage => self.pick_image(root, &sender),
+            BookViewInput::LocalImageLoaded(raw) => self.process_image(raw, &sender),
+            BookViewInput::CoverProcessed(resized) => self.handle_cover_processed(resized, widgets),
+            BookViewInput::Save => self.handle_save(widgets, &sender, root),
+            BookViewInput::DeleteRequested => self.confirm_delete(root, &sender),
+            BookViewInput::DeleteConfirmed => self.handle_delete(&sender, root),
         }
+    }
+}
+
+impl BookViewModal {
+    fn pick_image(&self, root: &adw::Window, sender: &ComponentSender<Self>) {
+        let sender = sender.clone();
+        pick_image_file(Some(root), move |bytes| {
+            sender.input(BookViewInput::LocalImageLoaded(bytes));
+        });
+    }
+
+    fn process_image(&self, raw: Vec<u8>, sender: &ComponentSender<Self>) {
+        let sender = sender.clone();
+        relm4::spawn(async move {
+            let resized = process_image_bytes(raw).await;
+            sender.input(BookViewInput::CoverProcessed(resized));
+        });
+    }
+
+    fn handle_cover_processed(&mut self, resized: Vec<u8>, widgets: &mut BookViewModalWidgets) {
+        if let Some(tex) = texture_from_bytes(&resized) {
+            widgets.cover_picture.set_paintable(Some(&tex));
+            self.pending_cover_bytes = Some(resized);
+        }
+    }
+
+    fn handle_save(
+        &mut self,
+        widgets: &mut BookViewModalWidgets,
+        sender: &ComponentSender<Self>,
+        root: &adw::Window,
+    ) {
+        let mut has_error = false;
+        let updated = Book {
+            id: self.book.id,
+            title: clean_entry(&widgets.title_entry),
+            author: clean_entry(&widgets.author_entry),
+            description: clean_text(&widgets.description_view),
+            cover_url: clean_entry(&widgets.cover_entry),
+            read_by_nika: widgets.read_by_nika_switch.is_active(),
+            read_by_petya: widgets.read_by_petya_switch.is_active(),
+            location: BookLocation::from_index(widgets.location_row.selected()),
+        };
+
+        widgets.title_entry.remove_css_class("error");
+        widgets.author_entry.remove_css_class("error");
+
+        if updated.title.is_empty() {
+            widgets.title_entry.add_css_class("error");
+            has_error = true;
+        }
+        if updated.author.is_empty() {
+            widgets.author_entry.add_css_class("error");
+            has_error = true;
+        }
+        if has_error {
+            return;
+        }
+
+        if let Some(bytes) = self.pending_cover_bytes.take() {
+            let _ = covers::save_cover_bytes(updated.id, &bytes);
+        }
+
+        let _ = sender.output(BookViewOutput::Save(updated));
+        root.close();
+    }
+
+    fn confirm_delete(&self, root: &adw::Window, sender: &ComponentSender<Self>) {
+        let dialog = adw::AlertDialog::new(
+            Some("Delete this book?"),
+            Some(&format!(
+                "“{}” will be removed permanently.",
+                self.book.title
+            )),
+        );
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("delete", "Delete");
+        dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+        dialog.set_close_response("cancel");
+        dialog.set_default_response(Some("cancel"));
+
+        let sender = sender.clone();
+        dialog.connect_response(None, move |_, response| {
+            if response == "delete" {
+                sender.input(BookViewInput::DeleteConfirmed);
+            }
+        });
+
+        dialog.present(Some(root));
+    }
+
+    fn handle_delete(&self, sender: &ComponentSender<Self>, root: &adw::Window) {
+        let _ = sender.output(BookViewOutput::Delete(self.book.id));
+        root.close();
     }
 }
 

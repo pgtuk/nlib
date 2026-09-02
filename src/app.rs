@@ -93,6 +93,12 @@ impl App {
         }
         Ok(())
     }
+
+    fn refresh_grid_or_report(&mut self, sender: &ComponentSender<Self>) {
+        if let Err(e) = self.refresh_grid() {
+            sender.input(AppAction::ShowError(e));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -369,192 +375,214 @@ impl Component for App {
         root: &Self::Root,
     ) {
         match message {
-            AppAction::OpenAddDialog => {
-                self.add_book_modal.widget().present();
-            }
-            AppAction::SaveBook(draft) => match self.library.add_book(&draft) {
-                Ok(_) => {
-                    if let Err(e) = self.refresh_grid() {
-                        sender.input(AppAction::ShowError(e));
-                    }
-                }
-                Err(e) => {
-                    sender.input(AppAction::ShowError(e.into()));
-                }
-            },
-            AppAction::Search(q) => {
-                self.query = q.to_lowercase();
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
-            AppAction::SetSortField(field) => {
-                self.sort_field = field;
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
-            AppAction::ToggleSortOrder => {
-                self.sort_order = match self.sort_order {
-                    SortOrder::Asc => {
-                        widgets
-                            .sort_order_btn
-                            .set_icon_name("view-sort-descending-symbolic");
-                        SortOrder::Desc
-                    }
-                    SortOrder::Desc => {
-                        widgets
-                            .sort_order_btn
-                            .set_icon_name("view-sort-ascending-symbolic");
-                        SortOrder::Asc
-                    }
-                };
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
-            AppAction::ToggleNikaRead(active) => {
-                self.filter.nika_read = active;
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
-            AppAction::ToggleNikaUnread(active) => {
-                self.filter.nika_unread = active;
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
-            AppAction::TogglePetyaRead(active) => {
-                self.filter.petya_read = active;
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-            }
+            AppAction::OpenAddDialog => self.add_book_modal.widget().present(),
+            AppAction::SaveBook(draft) => self.handle_save_book(draft, &sender),
+            AppAction::Search(q) => self.handle_search(q, &sender),
+            AppAction::SetSortField(field) => self.handle_set_sort_field(field, &sender),
+            AppAction::ToggleSortOrder => self.handle_toggle_sort_order(widgets, &sender),
+            AppAction::ToggleNikaRead(active) => self.handle_toggle_nika_read(active, &sender),
+            AppAction::ToggleNikaUnread(active) => self.handle_toggle_nika_unread(active, &sender),
+            AppAction::TogglePetyaRead(active) => self.handle_toggle_petya_read(active, &sender),
             AppAction::TogglePetyaUnread(active) => {
-                self.filter.petya_unread = active;
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
+                self.handle_toggle_petya_unread(active, &sender)
             }
-            AppAction::ResetFilters => {
-                self.filter = FilterState::default();
-                self.sort_field = SortField::DateAdded;
-                self.sort_order = SortOrder::Desc;
-                widgets.sort_combo.set_selected(0);
+            AppAction::ResetFilters => self.handle_reset_filters(widgets, &sender),
+            AppAction::OpenBook(book) => self.handle_open_book(book, root, &sender),
+            AppAction::UpdateBook(book) => self.handle_update_book(book, &sender),
+            AppAction::DeleteBook(id) => self.handle_delete_book(id, &sender),
+            AppAction::ExportBackup => self.handle_export_backup(root, &sender),
+            AppAction::ImportBackup => self.handle_import_backup(root, &sender),
+            AppAction::ShowInfo(msg) => self.handle_show_info(&msg, widgets, &sender),
+            AppAction::ShowError(err) => self.handle_show_error(&err, widgets),
+        }
+    }
+}
+
+impl App {
+    fn handle_save_book(&mut self, draft: BookDraft, sender: &ComponentSender<Self>) {
+        match self.library.add_book(&draft) {
+            Ok(_) => self.refresh_grid_or_report(sender),
+            Err(e) => sender.input(AppAction::ShowError(e.into())),
+        }
+    }
+
+    fn handle_search(&mut self, query: String, sender: &ComponentSender<Self>) {
+        self.query = query.to_lowercase();
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_set_sort_field(&mut self, field: SortField, sender: &ComponentSender<Self>) {
+        self.sort_field = field;
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_toggle_sort_order(
+        &mut self,
+        widgets: &mut AppWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        self.sort_order = match self.sort_order {
+            SortOrder::Asc => {
                 widgets
                     .sort_order_btn
                     .set_icon_name("view-sort-descending-symbolic");
-                widgets.nika_read_check.set_active(false);
-                widgets.nika_unread_check.set_active(false);
-                widgets.petya_read_check.set_active(false);
-                widgets.petya_unread_check.set_active(false);
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
+                SortOrder::Desc
             }
-            AppAction::OpenBook(book) => {
-                let modal = BookViewModal::builder()
-                    .transient_for(root)
-                    .launch(book)
-                    .forward(sender.input_sender(), |out| match out {
-                        BookViewOutput::Save(book) => AppAction::UpdateBook(book),
-                        BookViewOutput::Delete(id) => AppAction::DeleteBook(id),
-                    });
-                modal.widget().present();
-                self.book_view_modal = Some(modal);
+            SortOrder::Desc => {
+                widgets
+                    .sort_order_btn
+                    .set_icon_name("view-sort-ascending-symbolic");
+                SortOrder::Asc
             }
-            AppAction::UpdateBook(book) => match self.library.update_book(&book) {
-                Ok(()) => {
-                    self.book_view_modal = None;
-                    if let Err(e) = self.refresh_grid() {
-                        sender.input(AppAction::ShowError(e));
-                    }
-                }
-                Err(e) => {
-                    sender.input(AppAction::ShowError(e.into()));
-                }
-            },
-            AppAction::DeleteBook(id) => match self.library.delete_book(id) {
-                Ok(()) => {
-                    self.book_view_modal = None;
-                    if let Err(e) = self.refresh_grid() {
-                        sender.input(AppAction::ShowError(e));
-                    }
-                }
-                Err(e) => {
-                    sender.input(AppAction::ShowError(e.into()));
-                }
-            },
-            AppAction::ExportBackup => {
-                let dialog = gtk::FileDialog::builder()
-                    .title("Export Library Backup")
-                    .initial_name("nlib-backup.json")
-                    .build();
+        };
+        self.refresh_grid_or_report(sender);
+    }
 
-                let sender_clone = sender.clone();
-                let library = self.library.clone();
-                dialog.save(Some(root), gtk::gio::Cancellable::NONE, move |res| {
-                    if let Ok(file) = res {
-                        if let Some(path) = file.path() {
-                            match library.export_to_json(&path) {
-                                Ok(count) => sender_clone.input(AppAction::ShowInfo(format!(
-                                    "Successfully exported {count} books to backup."
-                                ))),
-                                Err(e) => sender_clone.input(AppAction::ShowError(e.into())),
-                            }
-                        }
-                    }
-                });
-            }
-            AppAction::ImportBackup => {
-                let filter = gtk::FileFilter::new();
-                filter.set_name(Some("JSON files"));
-                filter.add_pattern("*.json");
+    fn handle_toggle_nika_read(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.nika_read = active;
+        self.refresh_grid_or_report(sender);
+    }
 
-                let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
-                filters.append(&filter);
+    fn handle_toggle_nika_unread(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.nika_unread = active;
+        self.refresh_grid_or_report(sender);
+    }
 
-                let dialog = gtk::FileDialog::builder()
-                    .title("Import Library Backup")
-                    .filters(&filters)
-                    .build();
+    fn handle_toggle_petya_read(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.petya_read = active;
+        self.refresh_grid_or_report(sender);
+    }
 
-                let sender_clone = sender.clone();
-                let library = self.library.clone();
-                dialog.open(Some(root), gtk::gio::Cancellable::NONE, move |res| {
-                    if let Ok(file) = res {
-                        if let Some(path) = file.path() {
-                            match library.import_from_json(&path) {
-                                Ok(summary) => {
-                                    let mut msg = format!("Imported {} books.", summary.imported);
-                                    if summary.skipped_duplicates > 0 {
-                                        msg.push_str(&format!(
-                                            " (Skipped {} existing duplicates)",
-                                            summary.skipped_duplicates
-                                        ));
-                                    }
-                                    sender_clone.input(AppAction::ShowInfo(msg));
-                                }
-                                Err(e) => sender_clone.input(AppAction::ShowError(e.into())),
-                            }
-                        }
-                    }
-                });
+    fn handle_toggle_petya_unread(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.petya_unread = active;
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_reset_filters(&mut self, widgets: &mut AppWidgets, sender: &ComponentSender<Self>) {
+        self.filter = FilterState::default();
+        self.sort_field = SortField::DateAdded;
+        self.sort_order = SortOrder::Desc;
+        widgets.sort_combo.set_selected(0);
+        widgets
+            .sort_order_btn
+            .set_icon_name("view-sort-descending-symbolic");
+        widgets.nika_read_check.set_active(false);
+        widgets.nika_unread_check.set_active(false);
+        widgets.petya_read_check.set_active(false);
+        widgets.petya_unread_check.set_active(false);
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_open_book(
+        &mut self,
+        book: Book,
+        root: &adw::ApplicationWindow,
+        sender: &ComponentSender<Self>,
+    ) {
+        let modal = BookViewModal::builder()
+            .transient_for(root)
+            .launch(book)
+            .forward(sender.input_sender(), |out| match out {
+                BookViewOutput::Save(book) => AppAction::UpdateBook(book),
+                BookViewOutput::Delete(id) => AppAction::DeleteBook(id),
+            });
+        modal.widget().present();
+        self.book_view_modal = Some(modal);
+    }
+
+    fn handle_update_book(&mut self, book: Book, sender: &ComponentSender<Self>) {
+        match self.library.update_book(&book) {
+            Ok(()) => {
+                self.book_view_modal = None;
+                self.refresh_grid_or_report(sender);
             }
-            AppAction::ShowInfo(msg) => {
-                if let Err(e) = self.refresh_grid() {
-                    sender.input(AppAction::ShowError(e));
-                }
-                let toast = adw::Toast::new(&msg);
-                toast.set_timeout(4);
-                widgets.toast_overlay.add_toast(toast);
-            }
-            AppAction::ShowError(err) => {
-                let toast = adw::Toast::new(&err.to_string());
-                toast.set_timeout(5);
-                widgets.toast_overlay.add_toast(toast);
-            }
+            Err(e) => sender.input(AppAction::ShowError(e.into())),
         }
+    }
+
+    fn handle_delete_book(&mut self, id: i64, sender: &ComponentSender<Self>) {
+        match self.library.delete_book(id) {
+            Ok(()) => {
+                self.book_view_modal = None;
+                self.refresh_grid_or_report(sender);
+            }
+            Err(e) => sender.input(AppAction::ShowError(e.into())),
+        }
+    }
+
+    fn handle_export_backup(&self, root: &adw::ApplicationWindow, sender: &ComponentSender<Self>) {
+        let dialog = gtk::FileDialog::builder()
+            .title("Export Library Backup")
+            .initial_name("nlib-backup.json")
+            .build();
+
+        let sender_clone = sender.clone();
+        let library = self.library.clone();
+        dialog.save(Some(root), gtk::gio::Cancellable::NONE, move |res| {
+            if let Ok(file) = res {
+                if let Some(path) = file.path() {
+                    match library.export_to_json(&path) {
+                        Ok(count) => sender_clone.input(AppAction::ShowInfo(format!(
+                            "Successfully exported {count} books to backup."
+                        ))),
+                        Err(e) => sender_clone.input(AppAction::ShowError(e.into())),
+                    }
+                }
+            }
+        });
+    }
+
+    fn handle_import_backup(&self, root: &adw::ApplicationWindow, sender: &ComponentSender<Self>) {
+        let filter = gtk::FileFilter::new();
+        filter.set_name(Some("JSON files"));
+        filter.add_pattern("*.json");
+
+        let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+
+        let dialog = gtk::FileDialog::builder()
+            .title("Import Library Backup")
+            .filters(&filters)
+            .build();
+
+        let sender_clone = sender.clone();
+        let library = self.library.clone();
+        dialog.open(Some(root), gtk::gio::Cancellable::NONE, move |res| {
+            if let Ok(file) = res {
+                if let Some(path) = file.path() {
+                    match library.import_from_json(&path) {
+                        Ok(summary) => {
+                            let mut msg = format!("Imported {} books.", summary.imported);
+                            if summary.skipped_duplicates > 0 {
+                                msg.push_str(&format!(
+                                    " (Skipped {} existing duplicates)",
+                                    summary.skipped_duplicates
+                                ));
+                            }
+                            sender_clone.input(AppAction::ShowInfo(msg));
+                        }
+                        Err(e) => sender_clone.input(AppAction::ShowError(e.into())),
+                    }
+                }
+            }
+        });
+    }
+
+    fn handle_show_info(
+        &mut self,
+        msg: &str,
+        widgets: &mut AppWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        self.refresh_grid_or_report(sender);
+        let toast = adw::Toast::new(msg);
+        toast.set_timeout(4);
+        widgets.toast_overlay.add_toast(toast);
+    }
+
+    fn handle_show_error(&self, err: &AppError, widgets: &mut AppWidgets) {
+        let toast = adw::Toast::new(&err.to_string());
+        toast.set_timeout(5);
+        widgets.toast_overlay.add_toast(toast);
     }
 }
