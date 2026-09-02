@@ -6,7 +6,7 @@ use crate::components::add_book_dialog::{AddBookDialog, AddBookDialogOutput};
 use crate::components::book_card::{BookCard, BookCardOutput};
 use crate::components::book_view::{BookViewModal, BookViewOutput};
 use crate::errors::AppError;
-use crate::models::{Book, BookDraft};
+use crate::models::{Book, BookDraft, BookLocation};
 use crate::services::library::LibraryService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,6 +30,9 @@ pub struct FilterState {
     pub nika_unread: bool,
     pub petya_read: bool,
     pub petya_unread: bool,
+    pub location_home: bool,
+    pub location_borrowed: bool,
+    pub location_dacha: bool,
 }
 
 impl FilterState {
@@ -46,7 +49,19 @@ impl FilterState {
             _ => true,
         };
 
-        nika_ok && petya_ok
+        let location_filter_active =
+            self.location_home || self.location_borrowed || self.location_dacha;
+        let location_ok = if location_filter_active {
+            match book.location {
+                BookLocation::Home => self.location_home,
+                BookLocation::Borrowed => self.location_borrowed,
+                BookLocation::Dacha => self.location_dacha,
+            }
+        } else {
+            true
+        };
+
+        nika_ok && petya_ok && location_ok
     }
 }
 
@@ -108,6 +123,9 @@ pub enum AppAction {
     ToggleNikaUnread(bool),
     TogglePetyaRead(bool),
     TogglePetyaUnread(bool),
+    ToggleLocationHome(bool),
+    ToggleLocationBorrowed(bool),
+    ToggleLocationDacha(bool),
     SetSortField(SortField),
     ToggleSortOrder,
     ResetFilters,
@@ -264,6 +282,40 @@ impl Component for App {
                                             set_orientation: gtk::Orientation::Horizontal,
                                         },
 
+                                        gtk::Label {
+                                            set_label: "Location",
+                                            add_css_class: "heading",
+                                            set_xalign: 0.0,
+                                        },
+
+                                        #[name = "loc_home_check"]
+                                        gtk::CheckButton {
+                                            set_label: Some("Home"),
+                                            connect_toggled[sender] => move |btn| {
+                                                sender.input(AppAction::ToggleLocationHome(btn.is_active()));
+                                            },
+                                        },
+
+                                        #[name = "loc_borrowed_check"]
+                                        gtk::CheckButton {
+                                            set_label: Some("Borrowed"),
+                                            connect_toggled[sender] => move |btn| {
+                                                sender.input(AppAction::ToggleLocationBorrowed(btn.is_active()));
+                                            },
+                                        },
+
+                                        #[name = "loc_dacha_check"]
+                                        gtk::CheckButton {
+                                            set_label: Some("Dacha"),
+                                            connect_toggled[sender] => move |btn| {
+                                                sender.input(AppAction::ToggleLocationDacha(btn.is_active()));
+                                            },
+                                        },
+
+                                        gtk::Separator {
+                                            set_orientation: gtk::Orientation::Horizontal,
+                                        },
+
                                         gtk::Button {
                                             set_label: "Reset",
                                             connect_clicked[sender] => move |_| {
@@ -310,21 +362,23 @@ impl Component for App {
                     },
 
                     gtk::ScrolledWindow {
-                        set_vexpand: true,          // without this it collapses to zero height
+                        set_vexpand: true,
+                        set_hexpand: true,
 
-                        #[local_ref]
-                        book_flow_box -> gtk::FlowBox {
-                            set_valign: gtk::Align::Start,
-                            set_homogeneous: true,
+                        #[wrap(Some)]
+                        set_child = &gtk::FlowBox {
                             set_selection_mode: gtk::SelectionMode::None,
+                            set_max_children_per_line: 12,
+                            set_min_children_per_line: 2,
                             set_row_spacing: 12,
                             set_column_spacing: 12,
-                            set_margin_start: 16,
-                            set_margin_end: 16,
-                            set_margin_top: 16,
-                            set_margin_bottom: 16,
-                        }
-                    }
+                            set_margin_all: 12,
+                            set_valign: gtk::Align::Start,
+
+                            #[local_ref]
+                            books_grid -> gtk::FlowBox,
+                        },
+                    },
                 }
             }
         }
@@ -342,28 +396,28 @@ impl Component for App {
                 AddBookDialogOutput::Save(draft) => AppAction::SaveBook(draft),
             });
 
-        let mut model = App {
+        let displayed_books = FactoryVecDeque::builder()
+            .launch(gtk::FlowBox::default())
+            .forward(sender.input_sender(), |out| match out {
+                BookCardOutput::Open(b) => AppAction::OpenBook(b),
+            });
+
+        let mut model = Self {
             library,
-            displayed_books: FactoryVecDeque::builder().launch_default().forward(
-                sender.input_sender(),
-                |out| match out {
-                    BookCardOutput::Open(book) => AppAction::OpenBook(book),
-                },
-            ),
+            displayed_books,
             query: String::new(),
             filter: FilterState::default(),
-            sort_field: SortField::DateAdded,
-            sort_order: SortOrder::Desc,
+            sort_field: SortField::default(),
+            sort_order: SortOrder::default(),
             add_book_modal,
             book_view_modal: None,
         };
 
-        if let Err(e) = model.refresh_grid() {
-            sender.input(AppAction::ShowError(e));
-        }
-
-        let book_flow_box = model.displayed_books.widget();
+        let books_grid = model.displayed_books.widget();
         let widgets = view_output!();
+
+        model.refresh_grid_or_report(&sender);
+
         ComponentParts { model, widgets }
     }
 
@@ -385,6 +439,15 @@ impl Component for App {
             AppAction::TogglePetyaRead(active) => self.handle_toggle_petya_read(active, &sender),
             AppAction::TogglePetyaUnread(active) => {
                 self.handle_toggle_petya_unread(active, &sender)
+            }
+            AppAction::ToggleLocationHome(active) => {
+                self.handle_toggle_location_home(active, &sender)
+            }
+            AppAction::ToggleLocationBorrowed(active) => {
+                self.handle_toggle_location_borrowed(active, &sender)
+            }
+            AppAction::ToggleLocationDacha(active) => {
+                self.handle_toggle_location_dacha(active, &sender)
             }
             AppAction::ResetFilters => self.handle_reset_filters(widgets, &sender),
             AppAction::OpenBook(book) => self.handle_open_book(book, root, &sender),
@@ -458,6 +521,21 @@ impl App {
         self.refresh_grid_or_report(sender);
     }
 
+    fn handle_toggle_location_home(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.location_home = active;
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_toggle_location_borrowed(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.location_borrowed = active;
+        self.refresh_grid_or_report(sender);
+    }
+
+    fn handle_toggle_location_dacha(&mut self, active: bool, sender: &ComponentSender<Self>) {
+        self.filter.location_dacha = active;
+        self.refresh_grid_or_report(sender);
+    }
+
     fn handle_reset_filters(&mut self, widgets: &mut AppWidgets, sender: &ComponentSender<Self>) {
         self.filter = FilterState::default();
         self.sort_field = SortField::DateAdded;
@@ -470,6 +548,9 @@ impl App {
         widgets.nika_unread_check.set_active(false);
         widgets.petya_read_check.set_active(false);
         widgets.petya_unread_check.set_active(false);
+        widgets.loc_home_check.set_active(false);
+        widgets.loc_borrowed_check.set_active(false);
+        widgets.loc_dacha_check.set_active(false);
         self.refresh_grid_or_report(sender);
     }
 
