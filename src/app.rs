@@ -1,4 +1,4 @@
-use relm4::gtk::prelude::*;
+use relm4::adw::prelude::*;
 use relm4::prelude::*;
 use relm4::{adw, gtk};
 
@@ -8,6 +8,7 @@ use crate::components::book_view::{BookViewModal, BookViewOutput};
 use crate::errors::AppError;
 use crate::models::{Book, BookDraft, BookLocation};
 use crate::services::library::LibraryService;
+use crate::services::updater::{self, ReleaseInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortField {
@@ -154,6 +155,18 @@ pub enum AppAction {
     DeleteBook(i64),
     ExportBackup,
     ImportBackup,
+    CheckForUpdates {
+        manual: bool,
+    },
+    UpdateCheckResult {
+        manual: bool,
+        result: Result<Option<ReleaseInfo>, String>,
+    },
+    ApplyUpdate {
+        download_url: String,
+        version: String,
+    },
+    UpdateFinished(Result<String, String>),
     ShowInfo(String),
     ShowError(AppError),
 }
@@ -382,6 +395,17 @@ impl Component for App {
                                             sender.input(AppAction::ImportBackup);
                                         },
                                     },
+
+                                    gtk::Separator {
+                                        set_orientation: gtk::Orientation::Horizontal,
+                                    },
+
+                                    gtk::Button {
+                                        set_label: "Check for Updates",
+                                        connect_clicked[sender] => move |_| {
+                                            sender.input(AppAction::CheckForUpdates { manual: true });
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -452,6 +476,9 @@ impl Component for App {
         let books_grid = model.displayed_books.widget();
         let widgets = view_output!();
 
+        // Check for updates non-intrusively in the background on startup
+        sender.input(AppAction::CheckForUpdates { manual: false });
+
         ComponentParts { model, widgets }
     }
 
@@ -489,6 +516,17 @@ impl Component for App {
             AppAction::DeleteBook(id) => self.handle_delete_book(id, &sender),
             AppAction::ExportBackup => self.handle_export_backup(root, &sender),
             AppAction::ImportBackup => self.handle_import_backup(root, &sender),
+            AppAction::CheckForUpdates { manual } => {
+                self.handle_check_for_updates(manual, widgets, &sender)
+            }
+            AppAction::UpdateCheckResult { manual, result } => {
+                self.handle_update_check_result(manual, result, root, widgets, &sender)
+            }
+            AppAction::ApplyUpdate {
+                download_url,
+                version,
+            } => self.handle_apply_update(download_url, version, widgets, &sender),
+            AppAction::UpdateFinished(res) => self.handle_update_finished(res, widgets),
             AppAction::ShowInfo(msg) => self.handle_show_info(&msg, widgets, &sender),
             AppAction::ShowError(err) => self.handle_show_error(&err, widgets),
         }
@@ -682,6 +720,127 @@ impl App {
                 }
             }
         });
+    }
+
+    fn handle_check_for_updates(
+        &self,
+        manual: bool,
+        widgets: &mut AppWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        if manual {
+            let toast = adw::Toast::new("Checking for updates...");
+            toast.set_timeout(2);
+            widgets.toast_overlay.add_toast(toast);
+        }
+
+        let sender_clone = sender.clone();
+        relm4::spawn(async move {
+            let result = updater::check_for_update().await;
+            sender_clone.input(AppAction::UpdateCheckResult { manual, result });
+        });
+    }
+
+    fn handle_update_check_result(
+        &self,
+        manual: bool,
+        result: Result<Option<ReleaseInfo>, String>,
+        root: &adw::ApplicationWindow,
+        widgets: &mut AppWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        match result {
+            Ok(Some(release)) => {
+                let heading = format!("Update Available: v{}", release.version);
+                let mut body = format!(
+                    "A newer version of nlib (v{}) is available.\nYour current version is v{}.",
+                    release.version,
+                    updater::CURRENT_VERSION
+                );
+                if let Some(notes) = &release.release_notes {
+                    let trimmed = notes.trim();
+                    if !trimmed.is_empty() {
+                        body.push_str("\n\nRelease notes:\n");
+                        body.push_str(trimmed);
+                    }
+                }
+
+                let dialog = adw::AlertDialog::new(Some(&heading), Some(&body));
+                dialog.add_response("cancel", "Later");
+                dialog.add_response("update", "Update Now");
+                dialog.set_response_appearance("update", adw::ResponseAppearance::Suggested);
+                dialog.set_close_response("cancel");
+                dialog.set_default_response(Some("update"));
+
+                let sender_clone = sender.clone();
+                let download_url = release.download_url;
+                let version = release.version;
+                dialog.connect_response(None, move |_, resp| {
+                    if resp == "update" {
+                        sender_clone.input(AppAction::ApplyUpdate {
+                            download_url: download_url.clone(),
+                            version: version.clone(),
+                        });
+                    }
+                });
+                dialog.present(Some(root));
+            }
+            Ok(None) => {
+                if manual {
+                    let toast = adw::Toast::new(&format!(
+                        "nlib is up to date (v{})",
+                        updater::CURRENT_VERSION
+                    ));
+                    toast.set_timeout(3);
+                    widgets.toast_overlay.add_toast(toast);
+                }
+            }
+            Err(e) => {
+                if manual {
+                    let toast = adw::Toast::new(&format!("Failed to check for updates: {e}"));
+                    toast.set_timeout(5);
+                    widgets.toast_overlay.add_toast(toast);
+                }
+            }
+        }
+    }
+
+    fn handle_apply_update(
+        &self,
+        download_url: String,
+        version: String,
+        widgets: &mut AppWidgets,
+        sender: &ComponentSender<Self>,
+    ) {
+        let toast = adw::Toast::new(&format!("Downloading update v{version}..."));
+        toast.set_timeout(4);
+        widgets.toast_overlay.add_toast(toast);
+
+        let sender_clone = sender.clone();
+        relm4::spawn(async move {
+            let result = updater::apply_update(&download_url).await;
+            match result {
+                Ok(()) => sender_clone.input(AppAction::UpdateFinished(Ok(version))),
+                Err(e) => sender_clone.input(AppAction::UpdateFinished(Err(e))),
+            }
+        });
+    }
+
+    fn handle_update_finished(&self, res: Result<String, String>, widgets: &mut AppWidgets) {
+        match res {
+            Ok(version) => {
+                let toast = adw::Toast::new(&format!(
+                    "Updated to v{version}! Please restart nlib to apply changes."
+                ));
+                toast.set_timeout(10);
+                widgets.toast_overlay.add_toast(toast);
+            }
+            Err(e) => {
+                let toast = adw::Toast::new(&format!("Update failed: {e}"));
+                toast.set_timeout(6);
+                widgets.toast_overlay.add_toast(toast);
+            }
+        }
     }
 
     fn handle_show_info(
