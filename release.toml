@@ -1,0 +1,18 @@
+# cargo-release configuration
+# Documentation: https://github.com/crate-ci/cargo-release/blob/master/docs/reference.md
+
+# Do not publish to crates.io (this is a standalone desktop application)
+publish = false
+
+# Tag format: v1.0.0
+tag-name = "v{{version}}"
+tag-message = "chore: release v{{version}}"
+
+# Commit format
+pre-release-commit-message = "chore: release v{{version}}"
+
+# Ensure git status is clean and on main branch before releasing
+allow-branch = ["main"]
+sign-commit = false
+sign-tag = false
+push = true
