@@ -9,8 +9,13 @@ pub const GITHUB_REPO: &str = "pgtuk/nlib";
 
 static GITHUB_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
     std::env::var("GITHUB_TOKEN")
+        .or_else(|_| std::env::var("GH_TOKEN"))
         .ok()
-        .or_else(|| option_env!("GITHUB_TOKEN").map(str::to_string))
+        .or_else(|| {
+            option_env!("GITHUB_TOKEN")
+                .or(option_env!("GH_TOKEN"))
+                .map(str::to_string)
+        })
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
 });
@@ -60,7 +65,10 @@ pub async fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    let mut req = client.get(&url);
+    let mut req = client
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
 
     if let Some(token) = GITHUB_TOKEN.as_deref() {
         req = req.bearer_auth(token);
@@ -129,7 +137,8 @@ pub async fn apply_update(download_url: &str) -> Result<(), String> {
     if let Some(token) = GITHUB_TOKEN.as_deref() {
         req = req
             .bearer_auth(token)
-            .header("Accept", "application/octet-stream");
+            .header("Accept", "application/octet-stream")
+            .header("X-GitHub-Api-Version", "2022-11-28");
     }
 
     let bytes = req
