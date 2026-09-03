@@ -9,6 +9,7 @@ use crate::models::BookDraft;
 static API_KEY: LazyLock<Option<String>> = LazyLock::new(|| {
     std::env::var("GOOGLE_BOOKS_API_KEY")
         .ok()
+        .or_else(|| option_env!("GOOGLE_BOOKS_API_KEY").map(str::to_string))
         .map(|k| {
             k.trim()
                 .trim_matches('"')

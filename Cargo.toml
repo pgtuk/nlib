@@ -1,6 +1,6 @@
 [package]
 name = "nlib"
-version = "0.9.4"
+version = "1.0.0"
 authors = ["Pe Tya <gtuk@duck.com>"]
 edition = "2021"
 
