@@ -5,17 +5,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::LazyLock;
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const GITHUB_REPO: &str = "pgtuk/nlib";
+pub const GH_REPO: &str = "pgtuk/nlib";
 
-static GITHUB_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
-    std::env::var("GITHUB_TOKEN")
-        .or_else(|_| std::env::var("GH_TOKEN"))
+static GH_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
+    std::env::var("GH_TOKEN")
         .ok()
-        .or_else(|| {
-            option_env!("GITHUB_TOKEN")
-                .or(option_env!("GH_TOKEN"))
-                .map(str::to_string)
-        })
+        .or_else(|| option_env!("GH_TOKEN").map(str::to_string))
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
 });
@@ -64,13 +59,13 @@ pub async fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+    let url = format!("https://api.github.com/repos/{GH_REPO}/releases/latest");
     let mut req = client
         .get(&url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
 
-    if let Some(token) = GITHUB_TOKEN.as_deref() {
+    if let Some(token) = GH_TOKEN.as_deref() {
         req = req.bearer_auth(token);
     }
 
@@ -103,7 +98,7 @@ pub async fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
         .ok_or_else(|| "No compatible binary asset found in latest release".to_string())?;
 
     // For private repositories, the API asset url with octet-stream header is preferred
-    let download_url = if GITHUB_TOKEN.is_some() {
+    let download_url = if GH_TOKEN.is_some() {
         asset
             .url
             .clone()
@@ -134,7 +129,7 @@ pub async fn apply_update(download_url: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let mut req = client.get(download_url);
-    if let Some(token) = GITHUB_TOKEN.as_deref() {
+    if let Some(token) = GH_TOKEN.as_deref() {
         req = req
             .bearer_auth(token)
             .header("Accept", "application/octet-stream")

@@ -28,7 +28,7 @@ jobs:
       - name: Build release binary
         env:
           GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: cargo build --release
 
       - name: Create Release and Upload Binary
