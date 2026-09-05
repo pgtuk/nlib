@@ -1,16 +1,7 @@
 use serde::Deserialize;
-use thiserror::Error;
 
-use super::HTTP_CLIENT;
+use super::{BookSearchError, HTTP_CLIENT};
 use crate::models::BookDraft;
-
-#[derive(Error, Debug)]
-pub enum OpenLibraryError {
-    #[error("HTTP error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("API error: {0}")]
-    Api(String),
-}
 
 #[derive(Deserialize, Debug)]
 struct OpenLibrarySearchResponse {
@@ -45,7 +36,7 @@ impl FirstSentence {
     }
 }
 
-pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, OpenLibraryError> {
+pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, BookSearchError> {
     let url = "https://openlibrary.org/search.json";
     let resp = HTTP_CLIENT
         .get(url)
@@ -54,7 +45,7 @@ pub async fn search_openlibrary(query: &str) -> Result<Vec<BookDraft>, OpenLibra
         .await?;
 
     if !resp.status().is_success() {
-        return Err(OpenLibraryError::Api(format!(
+        return Err(BookSearchError::Provider(format!(
             "OpenLibrary request failed: {}",
             resp.status()
         )));

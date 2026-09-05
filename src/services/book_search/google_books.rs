@@ -1,9 +1,7 @@
+use serde::Deserialize;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
-use thiserror::Error;
-
-use super::HTTP_CLIENT;
+use super::{BookSearchError, HTTP_CLIENT};
 use crate::models::BookDraft;
 
 static API_KEY: LazyLock<Option<String>> = LazyLock::new(|| {
@@ -19,14 +17,6 @@ static API_KEY: LazyLock<Option<String>> = LazyLock::new(|| {
         })
         .filter(|k| !k.is_empty())
 });
-
-#[derive(Error, Debug)]
-pub enum GoogleBooksError {
-    #[error("HTTP error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("{0}")]
-    Api(String),
-}
 
 #[derive(Deserialize, Debug)]
 struct GoogleBooksResponse {
@@ -65,7 +55,7 @@ struct GoogleImageLinks {
     small_thumbnail: Option<String>,
 }
 
-pub async fn search_google_books(query: &str) -> Result<Vec<BookDraft>, GoogleBooksError> {
+pub async fn search_google_books(query: &str) -> Result<Vec<BookDraft>, BookSearchError> {
     let mut request = HTTP_CLIENT
         .get("https://www.googleapis.com/books/v1/volumes")
         .query(&[("q", query), ("maxResults", "5")]);
@@ -82,30 +72,30 @@ pub async fn search_google_books(query: &str) -> Result<Vec<BookDraft>, GoogleBo
         if let Ok(err_resp) = serde_json::from_str::<GoogleBooksResponse>(&text) {
             if let Some(err) = err_resp.error {
                 if err.message.contains("Quota exceeded") || err.message.contains("RATE_LIMIT") {
-                    return Err(GoogleBooksError::Api(
+                    return Err(BookSearchError::Provider(
                         "Google Books quota exceeded. Check your API key or use OpenLibrary."
                             .to_string(),
                     ));
                 }
                 if err.message.contains("API key not valid") || err.message.contains("keyInvalid") {
-                    return Err(GoogleBooksError::Api(
+                    return Err(BookSearchError::Provider(
                         "Invalid Google Books API key in .env. Please verify your key.".to_string(),
                     ));
                 }
-                return Err(GoogleBooksError::Api(err.message));
+                return Err(BookSearchError::Provider(err.message));
             }
         }
-        return Err(GoogleBooksError::Api(format!(
+        return Err(BookSearchError::Provider(format!(
             "Google Books service error ({status})"
         )));
     }
 
     let response: GoogleBooksResponse = serde_json::from_str(&text).map_err(|e| {
-        GoogleBooksError::Api(format!("Failed to parse Google Books response: {e}"))
+        BookSearchError::Provider(format!("Failed to parse Google Books response: {e}"))
     })?;
 
     if let Some(err) = response.error {
-        return Err(GoogleBooksError::Api(err.message));
+        return Err(BookSearchError::Provider(err.message));
     }
 
     let items = response.items.unwrap_or_default();
@@ -136,7 +126,6 @@ fn volume_to_draft(info: GoogleVolumeInfo) -> BookDraft {
                 .or(img.small_thumbnail)
         })
         .map(|url| {
-            // Replace edge=curl and zoom levels for higher resolution images
             let secure = url.replace("http://", "https://");
             secure.replace("edge=curl&", "").replace("zoom=1", "zoom=0")
         })
