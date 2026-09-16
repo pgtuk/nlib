@@ -143,7 +143,7 @@ impl Component for BookViewModal {
                                     #[name = "location_row"]
                                     adw::ComboRow {
                                         set_title: "Location",
-                                        set_model: Some(&gtk::StringList::new(&["Home", "Borrowed", "Dacha"])),
+                                        set_model: Some(&gtk::StringList::new(BookLocation::LABELS)),
                                     },
                                 },
 

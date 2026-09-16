@@ -3,60 +3,79 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[repr(u32)]
 pub enum BookLocation {
     #[default]
-    Home,
-    Borrowed,
-    Dacha,
+    Home = 0,
+    Borrowed = 1,
+    Dacha = 2,
 }
 
+struct LocationMeta {
+    location: BookLocation,
+    as_str: &'static str,
+    label: &'static str,
+    badge_class: &'static str,
+}
+
+const METAS: [LocationMeta; 3] = [
+    LocationMeta {
+        location: BookLocation::Home,
+        as_str: "home",
+        label: "Home",
+        badge_class: "badge-home",
+    },
+    LocationMeta {
+        location: BookLocation::Borrowed,
+        as_str: "borrowed",
+        label: "Borrowed",
+        badge_class: "badge-borrowed",
+    },
+    LocationMeta {
+        location: BookLocation::Dacha,
+        as_str: "dacha",
+        label: "Dacha",
+        badge_class: "badge-dacha",
+    },
+];
+
 impl BookLocation {
+    pub const LABELS: &'static [&'static str] = &[METAS[0].label, METAS[1].label, METAS[2].label];
+
+    #[inline]
+    fn meta(&self) -> &'static LocationMeta {
+        &METAS[*self as usize]
+    }
+
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Home => "home",
-            Self::Borrowed => "borrowed",
-            Self::Dacha => "dacha",
-        }
+        self.meta().as_str
     }
 
     pub fn label(&self) -> &'static str {
-        match self {
-            Self::Home => "Home",
-            Self::Borrowed => "Borrowed",
-            Self::Dacha => "Dacha",
-        }
+        self.meta().label
     }
 
     pub fn badge_class(&self) -> &'static str {
-        match self {
-            Self::Home => "badge-home",
-            Self::Borrowed => "badge-borrowed",
-            Self::Dacha => "badge-dacha",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "borrowed" => Self::Borrowed,
-            "dacha" => Self::Dacha,
-            _ => Self::Home,
-        }
+        self.meta().badge_class
     }
 
     pub fn to_index(self) -> u32 {
-        match self {
-            Self::Home => 0,
-            Self::Borrowed => 1,
-            Self::Dacha => 2,
-        }
+        self as u32
     }
 
     pub fn from_index(index: u32) -> Self {
-        match index {
-            1 => Self::Borrowed,
-            2 => Self::Dacha,
-            _ => Self::Home,
-        }
+        METAS
+            .get(index as usize)
+            .map(|m| m.location)
+            .unwrap_or_default()
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        METAS
+            .iter()
+            .find(|m| m.as_str.eq_ignore_ascii_case(s))
+            .map(|m| m.location)
+            .unwrap_or_default()
     }
 }
 
@@ -142,4 +161,45 @@ pub struct Book {
     pub read_by_petya: bool,
     #[serde(default)]
     pub location: BookLocation,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_book_location_properties() {
+        assert_eq!(BookLocation::Home.as_str(), "home");
+        assert_eq!(BookLocation::Home.label(), "Home");
+        assert_eq!(BookLocation::Home.badge_class(), "badge-home");
+        assert_eq!(BookLocation::Home.to_index(), 0);
+
+        assert_eq!(BookLocation::Borrowed.as_str(), "borrowed");
+        assert_eq!(BookLocation::Borrowed.label(), "Borrowed");
+        assert_eq!(BookLocation::Borrowed.badge_class(), "badge-borrowed");
+        assert_eq!(BookLocation::Borrowed.to_index(), 1);
+
+        assert_eq!(BookLocation::Dacha.as_str(), "dacha");
+        assert_eq!(BookLocation::Dacha.label(), "Dacha");
+        assert_eq!(BookLocation::Dacha.badge_class(), "badge-dacha");
+        assert_eq!(BookLocation::Dacha.to_index(), 2);
+    }
+
+    #[test]
+    fn test_book_location_from_index() {
+        assert_eq!(BookLocation::from_index(0), BookLocation::Home);
+        assert_eq!(BookLocation::from_index(1), BookLocation::Borrowed);
+        assert_eq!(BookLocation::from_index(2), BookLocation::Dacha);
+        assert_eq!(BookLocation::from_index(99), BookLocation::Home);
+    }
+
+    #[test]
+    fn test_book_location_from_str() {
+        assert_eq!(BookLocation::from_str("home"), BookLocation::Home);
+        assert_eq!(BookLocation::from_str("HOME"), BookLocation::Home);
+        assert_eq!(BookLocation::from_str("borrowed"), BookLocation::Borrowed);
+        assert_eq!(BookLocation::from_str("Borrowed"), BookLocation::Borrowed);
+        assert_eq!(BookLocation::from_str("dacha"), BookLocation::Dacha);
+        assert_eq!(BookLocation::from_str("unknown"), BookLocation::Home);
+    }
 }
